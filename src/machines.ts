@@ -1,8 +1,7 @@
-import { maxHeaderSize } from "http";
 import { RecipeModel, OverclockResult } from "./page.js";
 import { Fluid, Goods, Item, Recipe, RecipeInOut, RecipeIoType, RecipeType, Repository } from "./repository.js";
-import { TIER_LV, TIER_MV, TIER_LUV, TIER_ZPM, TIER_UV, TIER_UHV, TIER_UEV, TIER_UIV, TIER_UXV, CoilTierNames } from "./utils.js";
-import { voltageTier, getFusionTierByStartupCost, formatTicksAsTime } from "./utils.js";
+import { TIER_LV, TIER_MV, TIER_LUV, TIER_ZPM, TIER_UV, TIER_UHV, TIER_UEV, TIER_UIV, TIER_UXV, CoilTierNames, CoilTiers } from "./utils.js";
+import { voltageTier, getFusionTierByStartupCost, formatTicksAsTime, RotorHolderTiers, TurbineRotors, ReflectorTiers, ParallelHatchTier, ParallelHatchTiers, AbsoluteParallelHatchTiers } from "./utils.js";
 
 export type MachineCoefficient<T> = Exclude<T, Function> | ((recipe:RecipeModel, choices:{[key:string]:number}) => T);
 
@@ -14,12 +13,14 @@ export class StandardOverclocker extends Overclocker{
     maxPerfect: number;
     maxNormal: number;
     multiplier: number;
+    perfectLabel?: string;
 
-    private constructor(maxPerfect:number, maxNormal:number, multiplier:number) {
+    private constructor(maxPerfect:number, maxNormal:number, multiplier:number, perfectLabel?:string) {
         super();
         this.maxPerfect = maxPerfect;
         this.maxNormal = maxNormal;
         this.multiplier = multiplier;
+        this.perfectLabel = perfectLabel;
     }
 
     static onlyPerfect(maxPerfect=MAX_OVERCLOCK, multiplier:number=4) {
@@ -32,6 +33,13 @@ export class StandardOverclocker extends Overclocker{
 
     static perfectThenNormal(maxPerfect=MAX_OVERCLOCK) {
         return new StandardOverclocker(maxPerfect, MAX_OVERCLOCK, 4);
+    }
+
+    // Half-perfect overclock used by fusion reactors: each tier gives 2x speed
+    // and 2x EU/t, so the energy per recipe stays the same (unlike a normal
+    // overclock which doubles it). Shown in the UI as "Fusion OC xN".
+    static fusion(maxFusion=MAX_OVERCLOCK) {
+        return new StandardOverclocker(maxFusion, 0, 2, "Fusion OC");
     }
 
     public calculate(recipeModel:RecipeModel, overclockTiers:number): OverclockResult {
@@ -50,7 +58,9 @@ export class StandardOverclocker extends Overclocker{
                 overclockSpeed = Math.pow(this.multiplier, perfectOverclocks);
                 let showCapped = perfectOverclocks == this.maxPerfect && normalOverclocks == 0;
                 let suffix = showCapped ? " (capped)" : "";
-                if (this.multiplier == 4) {
+                if (this.perfectLabel) {
+                    nameParts.push(this.perfectLabel + " x" + perfectOverclocks + suffix)
+                } else if (this.multiplier == 4) {
                     nameParts.push("Perfect OC x" + perfectOverclocks + suffix)
                 } else {
                     nameParts.push(this.multiplier + "/" + this.multiplier + " OC x" + perfectOverclocks + suffix)
@@ -111,6 +121,7 @@ export type Machine = {
     fixedVoltageTier?: MachineCoefficient<number>;
     excludesRecipe?: (recipe:Recipe) => boolean;
     roundAfterParallels?: boolean;
+    subtick?: boolean;
 }
 
 export function GetParameter<T>(coefficient: MachineCoefficient<T>, recipeModel:RecipeModel): T {
@@ -125,6 +136,10 @@ export type Choice = {
     choices?: string[];
     min?: number;
     max?: number;
+    // Lowest selectable index for a given recipe. Options below it are hidden in
+    // the UI and the value is clamped up to it. Used for recipe-dependent limits
+    // such as the minimum reflector tier a fusion recipe requires.
+    minIndex?: (recipe:RecipeModel) => number;
 }
 
 function createEditableCopy(items: RecipeInOut[]): RecipeInOut[] {
@@ -179,1676 +194,424 @@ export const notImplementedMachine:Machine = {
     info: "Machine not implemented (Calculated as a singleblock)",
 }
 
-machines["Steam Compressor"] = machines["Steam Alloy Smelter"] = machines["Steam Extractor"] = machines["Steam Furnace"] = machines["Steam Forge Hammer"] = machines["Steam Macerator"] = {
-    overclocker: NullOverclocker.instance,
-    speed: 0.5,
-    power: 0,
-    parallels: 1,
-    excludesRecipe: makeCompressorRecipeExcluder(0),
-    info: "Steam machine: Steam consumption not calculated",
+// ============================================================================
+// Modifier-driven machine engine
+// ----------------------------------------------------------------------------
+// Machine behaviour is derived from the crafter's exported recipeModifiers
+// rather than a hardcoded per-machine table. The formulas mirror
+// GTRecipeModifiers / StarTRecipeModifiers from the StarTech source. Crafters
+// whose modifiers are not modelled fall back to a sensible default (non-perfect
+// overclock, no parallels) and carry an informational note.
+// ============================================================================
+
+function makeParallelHatchChoice(tiers:ParallelHatchTier[]):Choice {
+    return {
+        description: "Parallel Hatch",
+        choices: tiers.map((tier) => `${tier.name}: ${tier.parallels}`),
+    };
 }
 
-machines["High Pressure Steam Compressor"] = machines["High Pressure Alloy Smelter"] = machines["High Pressure Steam Extractor"] = machines["High Pressure Steam Furnace"] = machines["High Pressure Steam Forge Hammer"] = machines["High Pressure Steam Macerator"] = {
-    overclocker: NullOverclocker.instance,
-    speed: 1,
-    power: 0,
-    parallels: 1,
-    excludesRecipe: makeCompressorRecipeExcluder(0),
-    info: "High pressure steam machine: Steam consumption not calculated",
+// Number of parallels for the selected hatch (choice index into the tier list).
+function parallelHatchCount(tiers:ParallelHatchTier[], index:number):number {
+    const tier = tiers[index] ?? tiers[0];
+    return Math.max(1, tier?.parallels ?? 1);
 }
 
-machines["Steam Squasher"] = machines["Steam Separator"] = machines["Steam Presser"] = machines["Steam Grinder"] = machines["Steam Purifier"] = machines["Steam Blender"] = {
-    overclocker: NullOverclocker.instance,
-    speed: (recipe, choices) => choices.pressure == 1 ? 1.25 : 0.625,
-    power: 0,
-    parallels: 8,
-    excludesRecipe: makeCompressorRecipeExcluder(0),
-    info: "Steam multiblock machine: Steam consumption not calculated",
-    choices: {
-        pressure: {
-            description: "Pressure",
-            choices: ["Normal", "High"],
-        },
-    },
-}
-
-machines["Large Electric Compressor"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2,
-    power: 0.9,
-    excludesRecipe: makeCompressorRecipeExcluder(0),
-    parallels: (recipe) => (recipe.voltageTier + 1) * 2,
-};
-
-machines["Hot Isostatic Pressurization Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    // TODO: 250% faster/slower than singleblock machines of the same voltage
-    speed: 2.5,
-    // TODO: 75%/110%
-    power: 0.75,
-    // TODO: 4/1 per voltage tier
-    parallels: (recipe) => (recipe.voltageTier + 1) * 4,
-    excludesRecipe: makeCompressorRecipeExcluder(1),
-    info: "Assumes it is not overheated"
-};
-
-machines["Pseudostable Black Hole Containment Field"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 5,
-    power: 0.7,
-    parallels: (recipe, choices) => {
-        // TODO: 2x/4x when stability is BELOW 50/20
-        return (recipe.voltageTier + 1) * 8;
-    },
-    excludesRecipe: makeCompressorRecipeExcluder(2),
-    info: "Parallels depend on stability, which is not represented.",
-};
-
-machines["Bacterial Vat"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    info: "Assumes perfect fill rate (x1001)",
-    recipe: (recipe, choices, items) => {
-        items = createEditableCopy(items);
-        for (let i=0; i<items.length; i++) {
-            let item = items[i];
-            if ((item.type == RecipeIoType.FluidInput || item.type == RecipeIoType.FluidOutput) && item.goods instanceof Fluid) {
-                item.amount = item.amount * 1001;
-            }
-        }
-        return items;
-    },
-};
-
-machines["Circuit Assembly Line"] = {
-    overclocker: StandardOverclocker.onlyPerfect(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Component Assembly Line"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipeModel, choices) => {
-        const recipeCoalTier = recipeModel.recipe?.gtRecipe.MetadataByKey("coal_casing_tier") ?? 1;
-        const actualCoalTier = choices.componentTier + 1;
-        return Math.pow(2, actualCoalTier - recipeCoalTier);
-    },
-    power: 1,
-    parallels: 1,
-    enforceChoiceConstraints: (recipeModel, choices) => {
-        const recipeCoalTier = recipeModel.recipe?.gtRecipe.MetadataByKey("coal_casing_tier") ?? 1;
-        choices.componentTier = Math.max(choices.componentTier, recipeCoalTier - 1);
-    },
-    choices: {
-        componentTier: { 
-            description: "Components Tier", 
-            choices: voltageTier.slice(0, 13).map(v => v.name)
-        }
-    }
-};
-
-machines["Extreme Heat Exchanger"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Naquadah Fuel Refinery"] = {
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    overclocker: (recipeModel, choices) => {
-        const buildingTierCoil = choices.coils + 1;
-        const recipeTierCoil = recipeModel.recipe?.gtRecipe.MetadataByKey("nfr_coil_tier") ?? 1;
-        const maxPerfectOverclocks = Math.max(0, buildingTierCoil - recipeTierCoil);
-        return StandardOverclocker.onlyPerfect(maxPerfectOverclocks);
-    },
-    choices: {coils: {
+function makeCoilChoice():Choice {
+    return {
         description: "Coils",
-        choices: ["T1 Field Restriction Coil", "T2 Advanced Field Restriction Coil", "T3 Ultimate Field Restriction Coil", "T4 Temporal Field Restriction Coil"],
-    }},
-    enforceChoiceConstraints: (recipe, choices) => {
-        const recipeTier = recipe.recipe?.gtRecipe.MetadataByKey("nfr_coil_tier") ?? 1;
-        choices.coils = Math.max(choices.coils, recipeTier - 1);
-    }
-};
-
-machines["Neutron Activator"] = {
-    speed: (recipe, choices) => Math.pow((1/0.9), (choices.speedingPipeCasing - 4)),
-    power: 0,
-    parallels: 1,
-    overclocker: NullOverclocker.instance,
-    choices: {speedingPipeCasing: {
-        description: "Speeding Pipe Casing",
-        min: 4,
-    }},
-    info: (recipeModel, choices) => {
-        const nke = recipeModel.recipe?.gtRecipe.MetadataByKey("nke_range") ?? 0;
-        const nkeMin = nke % 10000;
-        const nkeMax = Math.floor(nke / 10000);
-        const nkeRange = nkeMax - nkeMin;
-        const baseAverageEvPerEU = (10 + 20) / 2;
-        const averageEvPerEU = baseAverageEvPerEU * Math.pow(0.95, choices.speedingPipeCasing - 4);
-        const voltage = voltageTier[recipeModel.voltageTier].voltage;
-        const averageEvPerTick = averageEvPerEU * voltage;
-        const estimatedTicksToReachMinNke = nkeMin * 1000000 / averageEvPerTick;
-        const estimatedTicksToReachMaxNke = nkeMax * 1000000 / averageEvPerTick;
-        const estimatedTicksInRange = estimatedTicksToReachMaxNke - estimatedTicksToReachMinNke;
-        return   "INFO: Power usage not calculated</br>"
-               + "INFO: Requires " + nkeMin.toString() + "MeV. Estimated " + formatTicksAsTime(estimatedTicksToReachMinNke) + " to reach, " + formatTicksAsTime(estimatedTicksInRange) + " in range.";
-    },
-};
-
-machines["Precise Auto-Assembler MT-3662"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => {
-        return IsRecipeType(recipe, "Precise Assembler") ? 1 : 2;
-    },
-    power: 1,
-    parallels: (recipe, choices) => {
-        return Math.pow(2, choices.precisionTier) * 16;
-    },
-    choices: {precisionTier: {
-        description: "Precision Tier",
-        choices: ["Imprecise (MK-0)", "MK-I", "MK-II", "MK-III", "MK-IV"],
-    }},
-};
-
-machines["Fluid Shaper"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3,
-    power: 0.8,
-    parallels: (recipe, choices) => (recipe.voltageTier + 1) * (2 + 3 * choices.widthExpansion),
-    choices: {widthExpansion: {description: "Width Expansion", max: 6}},
-    info: "Assuming running at max speed.",
-};
-
-machines["Zyngen"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => 1 + choices.coilTier * 0.05,
-    power: 1,
-    parallels: (recipe, choices) => (recipe.voltageTier + 1) * choices.coilTier,
-    choices: {coilTier: CoilTierChoice},
-};
-
-machines["High Current Industrial Arc Furnace"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3.5,
-    power: 1,
-    parallels: (recipe, choices) => {
-        return IsRecipeType(recipe, "Plasma Arc Furnace") ? (recipe.voltageTier + 1) * 8 * choices.w : (recipe.voltageTier + 1) * choices.w;
-    },
-    choices: {w: {description: "W", min: 1}},
-};
-
-machines["Large Scale Auto-Assembler v1.01"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3,
-    power: 1,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 2,
-};
-
-function makeSpaceAssemblerRecipeExcluder(tier:number) {
-    return (recipe:Recipe) => recipe.gtRecipe.MetadataByKey("space_elevator_module_tier") > tier;
+        choices: CoilTierNames.map((name, index) => `T${index+1}: ${name}`),
+    };
 }
 
-machines["Space Assembler Module MK-I"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 4,
-    fixedVoltageTier: TIER_UHV + 1,
-    excludesRecipe: makeSpaceAssemblerRecipeExcluder(1),
-    info: "NOTE: overrides voltage tier"
-};
-
-machines["Space Assembler Module MK-II"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 16,
-    fixedVoltageTier: TIER_UIV + 2,
-    excludesRecipe: makeSpaceAssemblerRecipeExcluder(2),
-    info: "NOTE: overrides voltage tier"
-};
-
-machines["Space Assembler Module MK-III"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 64,
-    fixedVoltageTier: TIER_UXV + 3,
-    excludesRecipe: makeSpaceAssemblerRecipeExcluder(3),
-    info: "NOTE: overrides voltage tier"
-};
-
-let PipeItemCasingTierChoice: Choice = {
-    description: "Item Pipe Casing Tier",
-    choices: ["T1: Tin", "T2: Brass", "T3: Electrum", "T4: Platinum", "T5: Osmium", "T6: Quantium", "T7: Fluxed Electrum", "T8: Black Plutonium"],
+function makeReflectorChoice():Choice {
+    return {
+        description: "Reflector",
+        choices: ReflectorTiers.map((reflector) => `T${reflector.tier}: ${reflector.name}`),
+    };
 }
-let PipeFluidCasingTierChoice: Choice = {
-    description: "Fluid Pipe Casing Tier",
-    choices: ["T1: Bronze", "T2: Steel", "T3: Titanium", "T4: Tungstensteel"],
-}
-machines["Industrial Autoclave"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => 1.25 + choices.coilTier * 0.25,
-    power: (recipe, choices) => (11 - choices.pipeFluidCasingTier) / 12,
-    parallels: (recipe, choices) => choices.pipeCasingTier * 12 + 12,
-    choices: {coilTier: CoilTierChoice, pipeCasingTier: PipeItemCasingTierChoice, pipeFluidCasingTier:PipeFluidCasingTierChoice},
-};
 
-function getEbfExcessHeat(recipe:RecipeModel, choices:{[key:string]:number}) {
-    const recipeHeat = recipe.recipe?.gtRecipe.specialValue ?? 0;
-    const coilHeat = 1801 + choices.coilTier * 900;
+// Lowest reflector choice index whose tier satisfies the recipe requirement.
+function minReflectorIndexForTier(requiredTier:number):number {
+    const index = ReflectorTiers.findIndex((reflector) => reflector.tier >= requiredTier);
+    return index < 0 ? Math.max(0, ReflectorTiers.length - 1) : index;
+}
+
+// Fusion reactors run at a fixed voltage matching their tier (e.g. luv/zpm/uv/
+// uhv/uev/uiv_fusion_reactor). Derives that tier from the crafter's internal
+// name prefix by matching it against the voltage tier names.
+function getReactorVoltageTier(crafter:Item):number | undefined {
+    const prefix = (crafter.internalName ?? "").split("_")[0].toUpperCase();
+    const index = voltageTier.findIndex((tier) => tier.name.toUpperCase() === prefix);
+    return index >= 0 ? index : undefined;
+}
+
+function multiplyFactors(factors: MachineCoefficient<number>[]): MachineCoefficient<number> {
+    if (factors.length === 0)
+        return 1;
+    if (factors.length === 1)
+        return factors[0];
+    const closures = factors;
+    return (recipe, _choices) => closures.reduce<number>((product, factor) => product * GetParameter<number>(factor, recipe), 1);
+}
+
+// EBF heat helpers, now reading the real coil baseHeatCapacity from the data.
+function getEbfBlastTemp(recipe:RecipeModel, choices:{[key:string]:number}):number {
+    const coil = CoilTiers[choices.coilTier] ?? CoilTiers[0];
+    const coilHeat = coil ? coil.baseHeatCapacity : 0;
     const voltageHeat = Math.max(0, recipe.voltageTier - TIER_MV) * 100;
-    const actualHeat = coilHeat + voltageHeat;
-    return actualHeat - recipeHeat;
+    return coilHeat + voltageHeat;
 }
 
-function makeEbfOverclocker(recipe:RecipeModel, choices:{[key:string]:number}) {
-    const excessHeat = getEbfExcessHeat(recipe, choices);
-    const maxPerfectOverclocks = Math.floor(excessHeat / 1800);
+function getEbfExcessHeat(recipe:RecipeModel, choices:{[key:string]:number}):number {
+    const recipeHeat = recipe.recipe?.gtRecipe.MetadataByKey("ebf_temp") ?? 0;
+    return getEbfBlastTemp(recipe, choices) - recipeHeat;
+}
+
+// Lowest coil choice index whose blast temperature reaches the recipe's required
+// heat (coil base heat + the recipe's voltage heat). Coils below it can't run the
+// recipe and are hidden from the dropdown.
+function minCoilIndexForEbf(recipe:RecipeModel):number {
+    const recipeHeat = recipe.recipe?.gtRecipe.MetadataByKey("ebf_temp") ?? 0;
+    if (recipeHeat <= 0)
+        return 0;
+    const voltageHeat = Math.max(0, recipe.voltageTier - TIER_MV) * 100;
+    const index = CoilTiers.findIndex((coil) => coil.baseHeatCapacity + voltageHeat >= recipeHeat);
+    return index < 0 ? Math.max(0, CoilTiers.length - 1) : index;
+}
+
+function makeEbfOverclocker(recipe:RecipeModel, choices:{[key:string]:number}):Overclocker {
+    const maxPerfectOverclocks = Math.floor(getEbfExcessHeat(recipe, choices) / 1800);
     return StandardOverclocker.perfectThenNormal(maxPerfectOverclocks);
 }
 
-function ebfPower(recipe:RecipeModel, choices:{[key:string]:number}) {
-    const excessHeat = getEbfExcessHeat(recipe, choices);
-    const energyReductions = Math.floor(excessHeat / 900);
+function ebfPower(recipe:RecipeModel, choices:{[key:string]:number}):number {
+    const energyReductions = Math.floor(getEbfExcessHeat(recipe, choices) / 900);
     return Math.pow(0.95, energyReductions);
 }
 
-machines["Electric Blast Furnace"] = {
-    overclocker: makeEbfOverclocker,
-    speed: 1,
-    power: ebfPower,
-    parallels: 1,
-    recipe: (recipe, choices, items) => {   
-        for (let i=0; i<items.length; i++) {
-            let item = items[i];
-            if (item.type == RecipeIoType.FluidOutput && item.goods instanceof Fluid && 
-                (item.goods.name == "CO2 Gas" || item.goods.name == "Sulfur Dioxide" || item.goods.name == "Carbon Monoxide")) {
-                items = createEditableCopy(items);
-                items[i].amount = choices.muffler * item.amount * 0.125;
-                break;
-            }
-        }
-        return items;
+// Mutable accumulator describing the machine being assembled from modifiers.
+type MachineBuilder = {
+    speedFactors: MachineCoefficient<number>[];
+    powerFactors: MachineCoefficient<number>[];
+    parallelFactors: MachineCoefficient<number>[];
+    overclocker?: MachineCoefficient<Overclocker>;
+    subtick: boolean;
+    ignoreParallelLimit: boolean;
+    choices: {[key:string]:Choice};
+    enforceChoiceConstraints?: (recipe:RecipeModel, choices:{[key:string]:number}) => void;
+    excludesRecipe?: (recipe:Recipe) => boolean;
+    fixedVoltageTier?: MachineCoefficient<number>;
+    infos: string[];
+};
+
+type ModifierImpl = (builder:MachineBuilder, crafter:Item) => void;
+
+const NO_OP:ModifierImpl = () => {};
+
+function addCoilChoice(builder:MachineBuilder) {
+    builder.choices["coilTier"] = makeCoilChoice();
+}
+function addParallelChoice(builder:MachineBuilder) {
+    builder.choices["parallels"] = makeParallelHatchChoice(ParallelHatchTiers);
+    builder.parallelFactors.push((_recipe, choices) => parallelHatchCount(ParallelHatchTiers, choices.parallels));
+}
+
+// Like addParallelChoice, but the parallels do not increase the EU consumed:
+// each parallel runs for free, so the per-recipe power is divided by the count.
+function addFreeParallelChoice(builder:MachineBuilder) {
+    builder.choices["parallels"] = makeParallelHatchChoice(AbsoluteParallelHatchTiers);
+    builder.parallelFactors.push((_recipe, choices) => parallelHatchCount(AbsoluteParallelHatchTiers, choices.parallels));
+    builder.powerFactors.push((_recipe, choices) => 1 / parallelHatchCount(AbsoluteParallelHatchTiers, choices.parallels));
+}
+
+// Maps each known modifier id to the contribution it makes to a machine.
+const modifierRegistry: {[id:string]: ModifierImpl} = {
+    // --- Overclocking behaviour ---
+    "oc_perfect": builder => { builder.overclocker = StandardOverclocker.onlyPerfect(); },
+    "oc_non_perfect": builder => { builder.overclocker = StandardOverclocker.onlyNormal(); },
+    "oc_non_perfect_subtick": builder => {
+        builder.overclocker = StandardOverclocker.onlyNormal();
+        builder.subtick = true;
     },
-    choices: {coilTier: CoilTierChoice, muffler: {description: "Muffler hatch", choices: ["LV (0%)", "MV (12.5%)", "HV (25%)", "EV (37.5%)", "IV (50%)", "LuV (62.5%)", "ZPM (75%)", "UV (87.5%)", "UHV (100%)"]}},
+
+    // --- Parallels ---
+    // parallel_hatch scales EU with the parallel count (voltage-budget limited),
+    // while absolute_parallel runs its parallels for free (no extra EU).
+    "parallel_hatch": addParallelChoice,
+    "absolute_parallel": addFreeParallelChoice,
+
+    // --- Bulk / throughput multipliers ---
+    "throughput_boosting": builder => {
+        builder.parallelFactors.push(4);
+        builder.speedFactors.push(1 / 1.6);
+        builder.powerFactors.push(0.95);
+        // The 4 parallels are free: divide the per-recipe power so total EU does
+        // not grow with the parallel count.
+        builder.powerFactors.push(1 / 4);
+    },
+    "bulk_processing": builder => {
+        builder.parallelFactors.push(16);
+        builder.speedFactors.push(1 / 13);
+    },
+
+    // --- Coil-based specialised overclocks ---
+    "ebf_oc": builder => {
+        builder.overclocker = makeEbfOverclocker;
+        builder.powerFactors.push(ebfPower);
+        addCoilChoice(builder);
+        // Hide coils that can't reach the recipe's required blast temperature.
+        builder.choices["coilTier"].minIndex = minCoilIndexForEbf;
+    },
+    "cracker_oc": builder => {
+        builder.overclocker = StandardOverclocker.onlyNormal();
+        builder.subtick = true;
+        addCoilChoice(builder);
+        builder.powerFactors.push((_recipe, choices) => {
+            const tier = choices.coilTier;
+            if (tier <= 0)
+                return 1;
+            const discount = tier > 9 ? (0.9 + (tier - 9) * 0.025) : tier * 0.1;
+            return Math.max(0.0001, 1 - discount);
+        });
+    },
+    "pyrolyse_oven_oc": builder => {
+        builder.overclocker = StandardOverclocker.onlyNormal();
+        builder.subtick = true;
+        addCoilChoice(builder);
+        builder.speedFactors.push((_recipe, choices) => {
+            const tier = choices.coilTier;
+            const durationMultiplier = tier == 0 ? (4 / 3) : (2 / (tier + 1));
+            return 1 / durationMultiplier;
+        });
+    },
+    "chemical_reactor_oc": builder => {
+        builder.overclocker = StandardOverclocker.onlyNormal();
+        builder.subtick = true;
+        addCoilChoice(builder);
+        builder.speedFactors.push((_recipe, choices) => 0.75 + choices.coilTier * 0.25);
+        builder.powerFactors.push((_recipe, choices) => 1 - choices.coilTier * 0.05);
+    },
+    "multi_smellter_parallel": builder => {
+        // Approximation: maxParallel = 32 * coil smelter level. The in-game logic
+        // also rewrites recipe duration/EUt, which is not modelled here.
+        builder.overclocker = StandardOverclocker.onlyNormal();
+        builder.subtick = true;
+        addCoilChoice(builder);
+        builder.parallelFactors.push((_recipe, choices) => {
+            const coil = CoilTiers[choices.coilTier] ?? CoilTiers[0];
+            const level = coil ? coil.smelterLevel : (choices.coilTier + 1);
+            return Math.max(1, 32 * level);
+        });
+        builder.infos.push("Multi Smelter parallels approximated (duration/EUt overrides not modelled).");
+    },
+
+    // --- No-ops for rate calculation ---
+    "batch_mode": NO_OP,
+    "default_environment_requirement": NO_OP,
+    "consume_eu_to_start": NO_OP,
+    "fake_fusion_overclock": NO_OP,
+
+    // --- Reflector fusion reactor ---
+    // Mirrors ReflectorFusionReactorMachine.recipeModifier from StarT-Core. The
+    // reactor runs at a fixed voltage equal to its tier. Overclocking is done
+    // with half-perfect "Fusion OC" steps (2x speed, 2x EU/t, so energy per
+    // recipe is unchanged):
+    //   * one Fusion OC for each tier the reactor voltage is above the recipe
+    //     base tier, then
+    //   * one extra Fusion OC for each surplus reflector tier (reflectorDiff),
+    //     applied afterwards up to the reactor tier's maximum voltage.
+    // A reactor can only run a recipe whose startup energy (eu_to_start) fits
+    // within its maximum energy storage (read from the tooltip).
+    "reflector_fusion_reactor": (builder, crafter) => {
+        builder.choices["reflector"] = makeReflectorChoice();
+        // A reactor can only run a recipe whose reflector requirement is met:
+        // hide reflector tiers below the recipe's required `reflector_tier`.
+        builder.choices["reflector"].minIndex = (recipe) => {
+            const required = recipe.recipe?.gtRecipe.MetadataByKey("reflector_tier") ?? 0;
+            return required > 0 ? minReflectorIndexForTier(required) : 0;
+        };
+        const maxEnergyStorage = crafter.MetadataByKey("maxEnergyStorage", 0);
+        if (maxEnergyStorage > 0) {
+            builder.excludesRecipe = (recipe) => {
+                const euToStart = recipe.gtRecipe.MetadataByKey("eu_to_start", 0);
+                return euToStart > maxEnergyStorage;
+            };
+        }
+        const reactorTier = getReactorVoltageTier(crafter);
+        if (reactorTier !== undefined)
+            builder.fixedVoltageTier = reactorTier;
+        builder.overclocker = (recipe, choices) => {
+            const required = recipe.recipe?.gtRecipe.MetadataByKey("reflector_tier") ?? 0;
+            const reflector = ReflectorTiers[choices.reflector] ?? ReflectorTiers[0];
+            const reflectorDiff = Math.max(0, (reflector?.tier ?? 1) - required);
+            return new OverclockerFromClosure((recipeModel, _overclockTiers) => {
+                const gtRecipe = recipeModel.recipe?.gtRecipe;
+                // One Fusion OC per reactor tier above the recipe base tier.
+                const baseOverclocks = Math.max(0, recipeModel.voltageTier - (gtRecipe?.voltageTier ?? recipeModel.voltageTier));
+                // The reactor tier's max voltage caps how many extra (reflector)
+                // Fusion OCs can be applied: each OC doubles the EU/t draw.
+                const baseVoltage = Math.abs(gtRecipe?.voltage ?? 0);
+                const reactorMaxVoltage = voltageTier[recipeModel.voltageTier]?.voltage ?? 0;
+                const voltageOverclockCap = (baseVoltage > 0 && reactorMaxVoltage > 0)
+                    ? Math.floor(Math.log2(reactorMaxVoltage / baseVoltage))
+                    : baseOverclocks + reflectorDiff;
+                const totalOverclocks = Math.min(baseOverclocks + reflectorDiff, Math.max(baseOverclocks, voltageOverclockCap));
+                return StandardOverclocker.fusion().calculate(recipeModel, totalOverclocks);
+            });
+        };
+        builder.infos.push("Reflector fusion: runs at the reactor's fixed voltage; surplus reflector tiers add Fusion OCs up to the reactor tier's max voltage.");
+    },
 };
 
-machines["Volcanus"] = {
-    overclocker: makeEbfOverclocker,
-    speed: 2.2,
-    power: (recipe, choices) => ebfPower(recipe, choices) * 0.9,
-    parallels: 8,
-    choices: {coilTier: CoilTierChoice},
-    info: "Blazing pyrotheum required (Not calculated)",
-};
+const machineCache: {[id:string]: Machine} = {};
 
-// Name before 2.8
-machines["Mega Blast Furnace"] = {
-    overclocker: makeEbfOverclocker,
-    speed: 1,
-    power: ebfPower,
-    parallels: 256,
-    choices: {coilTier: CoilTierChoice},
-};
+function ComposeMachineFromModifiers(crafter:Item, _recipeType:RecipeType):Machine {
+    const modifiers = crafter.recipeModifiers ?? [];
+    if (modifiers.length === 0)
+        return notImplementedMachine;
 
-// Renamed since 2.8
-machines["Mega Electric Blast Furnace"] = machines["Mega Blast Furnace"]
+    const builder:MachineBuilder = {
+        speedFactors: [],
+        powerFactors: [],
+        parallelFactors: [],
+        overclocker: undefined,
+        subtick: false,
+        ignoreParallelLimit: false,
+        choices: {},
+        infos: [],
+    };
 
-machines["Big Barrel Brewery"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1.5,
-    power: 1,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 4,
-};
-
-machines["TurboCan Pro"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2,
-    power: 1,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 8,
-};
-
-machines["Ore Washing Plant"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 5,
-    power: 1,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 4,
-};
-
-machines["Oil Cracking Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: (recipe, choices) => 1 - Math.min(0.5, (choices.coilTier + 1) * 0.1),
-    parallels: 1,
-    choices: {coilTier: CoilTierChoice},
-};
-
-machines["Mega Oil Cracker"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: (recipe, choices) => 1 - Math.min(0.5, (choices.coilTier + 1) * 0.1),
-    parallels: 256,
-    choices: {coilTier: CoilTierChoice},
-};
-
-machines["Industrial Cutting Factory"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3,
-    power: 0.75,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 4,
-};
-
-machines["Distillation Tower"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Dangote Distillus"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => IsRecipeType(recipe, "Distillation Tower") ? 3.5 : 2,
-    power: (recipe, choices) => IsRecipeType(recipe, "Distillation Tower") ? 1 : 0.85,
-    parallels: (recipe, choices) => IsRecipeType(recipe, "Distillation Tower") ? 12 : (recipe.voltageTier + 1) * 8,
-};
-
-machines["Mega Distillation Tower"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 256,
-};
-
-machines["Electric Implosion Compressor"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: (recipe, choices) => Math.pow(4, choices.containmentBlockTier),
-    choices: {containmentBlockTier: {description: "Containment Block Tier", choices: ["Neutronium", "Infinity", "Transcendent Metal", "SpaceTime", "Universum"]}},
-};
-
-let electroMagnets:{name:string, speed:number, power:number, parallels:number}[] = [
-    {name: "Iron Electromagnet", speed: 1.1, power: 0.8, parallels: 8},
-    {name: "Steel Electromagnet", speed: 1.25, power: 0.75, parallels: 24},
-    {name: "Neodymium Electromagnet", speed: 1.5, power: 0.7, parallels: 48},
-    {name: "Samarium Electromagnet", speed: 2, power: 0.6, parallels: 96},
-    {name: "Tengam Electromagnet", speed: 2.5, power: 0.5, parallels: 256},
-]
-
-machines["Magnetic Flux Exhibitor"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => electroMagnets[choices.electromagnet].speed,
-    power: (recipe, choices) => electroMagnets[choices.electromagnet].power,
-    parallels: (recipe, choices) => electroMagnets[choices.electromagnet].parallels,
-    choices: {electromagnet: {description: "Electromagnet", choices: electroMagnets.map(m => m.name)}},
-};
-
-machines["Dissection Apparatus"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3,
-    power: 0.85,
-    parallels: (recipe, choices) => (choices.pipeCasingTier + 1) * 8,
-    choices: {pipeCasingTier: PipeItemCasingTierChoice},
-};
-
-machines["Industrial Extrusion Machine"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3.5,
-    power: 1,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 4,
-};
-
-machines["Assembly Line"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-function laserOverclockCalculator(recipeModel:RecipeModel, overclockTiers:number): OverclockResult {
-    const amperage = recipeModel.choices.inputAmperage;
-    const availableEut = voltageTier[recipeModel.voltageTier].voltage * amperage;
-    let currentEut = (recipeModel.recipe?.gtRecipe?.voltage || 32) * recipeModel.getItemInputCount();
-    
-    // We will need to limit to 1 per tick at most for AAL.
-    const parallel = recipeModel.getItemInputCount();
-    const durationTicks = (recipeModel.recipe?.gtRecipe.durationTicks || Number.POSITIVE_INFINITY);
-
-    let overclockSpeed = 1;
-    let overclockPower = 1;
-
-    const maxRegularOverclocks = recipeModel.voltageTier - (recipeModel.recipe?.gtRecipe?.voltageTier || TIER_LV);
-    let regularOverclocks = 0;
-    while (currentEut * 4 < availableEut && regularOverclocks < maxRegularOverclocks) {
-        currentEut *= 4;
-        overclockSpeed *= 2;
-        overclockPower *= 2;
-        regularOverclocks += 1;
+    let hasCustomLogic = false;
+    for (const id of modifiers) {
+        const impl = modifierRegistry[id];
+        if (impl)
+            impl(builder, crafter);
+        else
+            // Unknown / lambda / fusion-style modifier: cannot be modelled exactly.
+            hasCustomLogic = true;
     }
 
-    let laserOverclocks = 0;
-    while (true) {
-        const multiplier = 4.0 + 0.3 * (laserOverclocks + 1);
-        const potentialEU = currentEut * multiplier;
-        const estimatedDurationTicks = durationTicks / Math.pow(2, laserOverclocks + regularOverclocks + 1);
-        if (potentialEU >= availableEut) break;
-        if (estimatedDurationTicks < parallel) break;
+    if (hasCustomLogic)
+        builder.infos.push("Uses custom machine logic that is not fully modelled (approximated).");
 
-        currentEut = potentialEU;
-        overclockSpeed *= 2;
-        overclockPower *= multiplier / 2;
-        laserOverclocks += 1;
+    const machine:Machine = {
+        overclocker: builder.overclocker ?? StandardOverclocker.onlyNormal(),
+        speed: multiplyFactors(builder.speedFactors),
+        power: multiplyFactors(builder.powerFactors),
+        parallels: multiplyFactors(builder.parallelFactors),
+    };
+    if (builder.subtick)
+        machine.subtick = true;
+    if (Object.keys(builder.choices).length > 0)
+        machine.choices = builder.choices;
+    if (builder.enforceChoiceConstraints)
+        machine.enforceChoiceConstraints = builder.enforceChoiceConstraints;
+    if (builder.excludesRecipe)
+        machine.excludesRecipe = builder.excludesRecipe;
+    if (builder.fixedVoltageTier !== undefined)
+        machine.fixedVoltageTier = builder.fixedVoltageTier;
+    if (builder.ignoreParallelLimit)
+        machine.ignoreParallelLimit = true;
+    if (builder.infos.length > 0)
+        machine.info = builder.infos.join(" ");
+    return machine;
+}
 
-        if (laserOverclocks + regularOverclocks > maxRegularOverclocks + (Math.log(amperage) / Math.log(4))) break;
-    }
+// ============================================================================
+// Rotor-based turbine generators
+// ----------------------------------------------------------------------------
+// The large gas/plasma turbines (and the boosted Supreme/Nyinsane variants)
+// cannot be modelled through the named-modifier pattern: their behaviour is
+// driven by the installed rotor holder tier and turbine rotor material, exposed
+// here as data-driven choices (mirroring the EBF coil choice).
+//
+// GT formulas (RotorHolderPartMachine / LargeTurbineMachine):
+//   tierDiff        = holderTier - controllerTier   (clamped >= 0)
+//   totalEfficiency = max(100, rotorEfficiency% * 1.1^tierDiff)
+//   totalPower      = rotorPower% * 2^tierDiff
+//   maxVoltage      = baseProduction * totalPower/100 * parallelBonus
+// The net EU produced per unit of fuel scales with totalEfficiency (and the
+// boost bonus); maxVoltage only sets how much fuel a single turbine burns, i.e.
+// the number of turbines needed (parallels), not the fuel<->EU balance.
+// ============================================================================
 
-    let overclockNameParts = new Array();
-    if (regularOverclocks > 0) {
-        overclockNameParts.push("OC x" + regularOverclocks);
-    }
+type TurbineSpec = {
+    controllerTier: number;     // tier the rotor holder is compared against
+    baseProduction: number;     // BASE_EU_OUTPUT = V[controllerTier] * 2
+    parallelBonus: number;      // boosted turbines burn more fuel per turbine
+    boostTable?: number[];      // EU-per-fuel multiplier by [None, Passive, Active]
+};
 
-    if (laserOverclocks > 0 ) {
-        overclockNameParts.push("Laser OC x" + laserOverclocks);
-    }
+function makeTurbineMachine(spec:TurbineSpec):Machine {
+    // Rotor holders below the turbine's controller tier cannot be installed.
+    const minHolderIndex = Math.max(0, RotorHolderTiers.findIndex(h => h.tier >= spec.controllerTier));
+    const choices:{[key:string]:Choice} = {
+        rotorHolder: { description: "Rotor Holder", choices: RotorHolderTiers.map(h => h.name), min: minHolderIndex },
+        turbineRotor: { description: "Rotor", choices: TurbineRotors.map(r => r.name) },
+    };
+    if (spec.boostTable)
+        choices.boosting = { description: "Boosting", choices: ["None", "Passive", "Active"] };
 
-    // Display cap information if we're at the last possible overclock.
-    const estimatedDurationTicks = durationTicks / Math.pow(2, laserOverclocks + regularOverclocks);
-    if (estimatedDurationTicks / 2 < parallel) {
-        overclockNameParts.push("1 tick cap");
-    }
+    const tierDiffOf = (selected:{[key:string]:number}) => {
+        const holder = RotorHolderTiers[selected.rotorHolder] ?? RotorHolderTiers[0];
+        return Math.max(0, (holder?.tier ?? spec.controllerTier) - spec.controllerTier);
+    };
+    const rotorOf = (selected:{[key:string]:number}) => TurbineRotors[selected.turbineRotor] ?? TurbineRotors[0];
+
+    const power:MachineCoefficient<number> = (_recipe, selected) => {
+        const tierDiff = tierDiffOf(selected);
+        const rotor = rotorOf(selected);
+        const totalEfficiency = Math.max(100, (rotor?.efficiency ?? 100) * Math.pow(1.1, tierDiff));
+        let bonus = 1;
+        if (spec.boostTable)
+            bonus = spec.boostTable[selected.boosting ?? 0] ?? spec.boostTable[0];
+        return totalEfficiency / 100 * bonus;
+    };
+
+    const parallels:MachineCoefficient<number> = (recipe, selected) => {
+        const tierDiff = tierDiffOf(selected);
+        const rotor = rotorOf(selected);
+        const totalPower = (rotor?.power ?? 100) * Math.pow(2, tierDiff);
+        const maxVoltage = spec.baseProduction * totalPower / 100 * spec.parallelBonus;
+        const recipeVoltage = Math.abs(recipe.recipe?.gtRecipe.voltage ?? 0);
+        if (recipeVoltage <= 0)
+            return 1;
+        return Math.max(1, Math.ceil(maxVoltage / recipeVoltage));
+    };
+
+    const info = spec.boostTable
+        ? "Production scales with the chosen rotor holder tier and rotor material. Boosting fuel is not modelled."
+        : "Production scales with the chosen rotor holder tier and rotor material.";
 
     return {
-        overclockSpeed : overclockSpeed, 
-        overclockPower : overclockPower, 
-        perfectOverclocks : 0,
-        overclockName : overclockNameParts.join(", ")
-    };
-};
-
-machines["Advanced Assembly Line"] = {
-    speed: 1,
-    power: 1,
-    overclocker: new OverclockerFromClosure(laserOverclockCalculator),
-    parallels: (recipe) => recipe.getItemInputCount(),
-    ignoreParallelLimit: true, // prevent parallel limitation as solver does not understand separate ampearage
-    choices: {inputAmperage: {description: "Input Amperage", min: 16}},
-    roundAfterParallels: true,
-    info: "NOTE: Voltage determines the energy hatch voltage, not maximum voltage.",
-};
-
-machines["Large Fluid Extractor"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => 1.5 + choices.coilTier * 0.1,
-    power: (recipe, choices) => 0.80 * Math.pow(0.90, choices.coilTier),
-    parallels: (recipe, choices) => (choices.solenoidTier + 2) * 8,
-    choices: {coilTier: CoilTierChoice, solenoidTier: {description: "Solenoid Tier", choices: ["MV", "HV", "EV", "IV", "LuV", "ZPM", "UV", "UHV", "UEV", "UIV", "UMV"]}},
-};
-
-machines["Thermic Heating Device"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2.2,
-    power: 0.9,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 8,
-};
-
-machines["Furnace"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Multi Smelter"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: (recipe, choices) => {
-        return 8 * Math.pow(2, choices.coilTier);
-    },
-    choices: {coilTier: CoilTierChoice},
-    info: "Parallel amount needs testing!",
-};
-
-machines["Industrial Sledgehammer"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2,
-    power: 1,
-    parallels: (recipe, choices) => (recipe.voltageTier + 1) * (choices.anvilTier + 1) * 8,
-    choices: {anvilTier: {description: "Anvil Tier", choices: ["T1 - Vanilla", "T2 - Steel", "T3 - Dark Steel / Thaumium", "T4 - Void Metal"]}},
-};
-
-machines["Nuclear Reactor"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Implosion Compressor"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Density^2"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2,
-    power: 1,
-    parallels: (recipe) => Math.floor((recipe.voltageTier + 1) / 2) + 1,
-};
-
-machines["Large Chemical Reactor"] = {
-    overclocker: StandardOverclocker.onlyPerfect(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Mega Chemical Reactor"] = {
-    overclocker: StandardOverclocker.onlyPerfect(),
-    speed: 1,
-    power: 1,
-    parallels: 256,
-};
-
-machines["Hyper-Intensity Laser Engraver"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3.5,
-    power: 0.8,
-    parallels: (recipe, choices) => Math.floor(Math.cbrt(choices.laserAmperage)),
-    choices: {laserAmperage: {description: "Laser Amperage", min: 1}},
-};
-
-let precisionLatheParallels:number[] = [1, 1, 2, 4, 8, 12, 16, 32];
-let precisionLatheSpeed:number[] = [0.75, 0.8, 0.9, 1, 1.5, 2, 3, 4];
-
-machines["Industrial Precision Lathe"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => ((precisionLatheSpeed[choices.itemPipeCasings] + recipe.voltageTier + 1) / 4),
-    power: 0.8,
-    parallels: (recipe, choices) => precisionLatheParallels[choices.itemPipeCasings] + (recipe.voltageTier + 1) * 2,
-    choices: {itemPipeCasings:PipeItemCasingTierChoice}
-};
-
-machines["Industrial Maceration Stack"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1.6,
-    power: 1,
-    parallels: (recipe, choices) => {
-        const hasUpgrade = choices.upgradeChip == 1;
-        const n = hasUpgrade ? 8 : 2;
-        return n * (recipe.voltageTier + 1);
-    },
-    choices: {upgradeChip: {description: "Upgrade Chip", choices: ["No Upgrade", "Maceration Upgrade Chip"]}},
-};
-
-machines["Industrial Material Press"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 6,
-    power: 1,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 4,
-};
-
-machines["Nano Forge"] = {
-    overclocker: (recipeModel, choices) => {
-        // if ((mSpecialTier < 4 || recipe.mSpecialValue < 3) && mSpecialTier > recipe.mSpecialValue) {
-        //     OCFactor = 4.0;
-        // } else if (recipe.mSpecialValue == 3 && maxParallel > 1) {
-        //     OCFactor = 4.0;
-        // }
-        // where specialValue is required tier, specialTier is building tier
-        const neededTier = recipeModel.recipe?.gtRecipe.MetadataByKey("nano_forge_tier") ?? 1;
-        const buildingTier = choices.tier + 1;
-        if ((buildingTier < 4 || neededTier < 3) && buildingTier > neededTier)
-            return StandardOverclocker.onlyPerfect();
-        else if (neededTier == 3 && choices.parallels > 1)
-            return StandardOverclocker.onlyPerfect();
-        return StandardOverclocker.onlyNormal();
-    },
-    speed: (recipe, choices) => {
-        return (choices.tier == 3 && choices.parallels > 1) ? 1 / Math.pow(0.9999, choices.parallels) : 1;
-    },
-    power: 1,
-    parallels: (recipe, choices) => choices.parallels,
-    recipe: (recipe, choices, items) => {
-        if (choices.tier < 3 || choices.parallels <= 1) {
-            return items;
-        }
-
-        items = createEditableCopy(items);
-
-        for (let i = 0; i < items.length; ++i) {
-            let item = items[i];
-            if (item.type == RecipeIoType.ItemOutput) {
-                let naniteItem = createEditableCopy([item])[0];
-                naniteItem.type = RecipeIoType.ItemInput;
-                // Simulate needing 1 of an output nanite in the input to trigger parallels by
-                // spreading the input over all parallels.
-                naniteItem.amount = 1.0 / choices.parallels;
-                naniteItem.slot = 0;
-                items.push(naniteItem);
-            }
-        }
-
-        let magmatterFluid : RecipeInOut = {
-            type : RecipeIoType.FluidInput,
-            goodsPtr : 0,
-            goods : Repository.current.GetById<Fluid>("f:gregtech:molten.magmatter") as Fluid,
-            slot : 0,
-            // maxParallel = Math.max((int) (drainedMagmatter / (288 / GTUtility.powInt(2, 4 - recipe.mSpecialValue))), 1)
-            // maxParallel = drainedMagmatter / (288 / GTUtility.powInt(2, 4 - recipe.mSpecialValue))
-            // maxParallel * (288 / GTUtility.powInt(2, 4 - recipe.mSpecialValue)) = drainedMagmatter
-            amount : choices.parallels * (288 / Math.pow(2, 4 - choices.tier)),
-            probability : 1.0
-        };
-        items.push(magmatterFluid);
-
-        return items;
-    },
-    choices: {
-        tier: {description: "Tier", choices: ["T1 (Carbon Nanite)", "T2 (Neutronium Nanite)", "T3 (Transcendent Metal Nanite)", "T4 (Eternity Nanite)"]},
-        parallels: {description: "Parallels", min: 1}
-    },
-    enforceChoiceConstraints: (recipeModel, choices) => {
-        const tier = recipeModel.recipe?.gtRecipe.MetadataByKey("nano_forge_tier") ?? 1;
-        choices.tier = Math.max(choices.tier, tier - 1);
-
-        if (choices.tier != 3) {
-            choices.parallels = 1;
-        }
-    }
-};
-
-function makeCompressorRecipeExcluder(tier:number) {
-    return (recipe:Recipe) => tier < (recipe.gtRecipe.MetadataByKey("compression_tier") ?? 0);
-}
-
-machines["Neutronium Compressor"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 8,
-    excludesRecipe: makeCompressorRecipeExcluder(0),
-};
-
-machines["Amazon Warehousing Depot"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 6,
-    power: 0.75,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 16,
-};
-
-machines["PCB Factory"] = {
-    overclocker: (recipe, choices) => {
-        if (choices.cooling == 0)
-            return NullOverclocker.instance;
-        else if (choices.cooling >= 2)
-            return StandardOverclocker.onlyPerfect();
-        else
-            return StandardOverclocker.onlyNormal();
-    },
-    speed: (recipe, choices) => 1/Math.pow(100/choices.traceSize, 2),
-    power: (recipe, choices) => choices.cooling > 0 && choices.biochamber > 0 ? Math.sqrt(2) : 1,
-    parallels: (recipe, choices) => {
-        const nanites = choices.nanites;
-        return Math.min(256, Math.ceil(Math.pow(nanites, 0.75)));
-    },
-    choices: {nanites: {description: "Nanites", min: 1}, 
-        traceSize: {description: "Trace Size", min:50, max:200}, 
-        biochamber: {description: "Biochamber", choices: ["No Biochamber", "Biochamber"]}, 
-        cooling: {description: "Cooling", choices: ["No Cooling", "Liquid Cooling", "Thermosink Radiator"]},
-    },
-    recipe: (recipe, choices, items) => {
-        items = createEditableCopy(items);
-        let productionMultiplier = 100 / choices.traceSize;
-        for (let i=0; i<items.length; i++) {
-            let item = items[i];
-            if (item.type == RecipeIoType.ItemOutput && item.goods instanceof Item) {
-                item.amount = Math.floor(item.amount * productionMultiplier);
-            }
-        }
-        return items;
-    },
-};
-
-class DtpfCatalyst {
-    tier: number;
-    displayName: string;
-    id: string;
-    euPerLiter: number;
-    residuePerLiter: number;
-
-    constructor(tier: number, displayName: string, id: string, euPerLiter: number, residuePerLiter: number) {
-        this.tier = tier;
-        this.displayName = displayName;
-        this.id = id;
-        this.euPerLiter = euPerLiter;
-        this.residuePerLiter = residuePerLiter;
-    }
-}
-
-let DtpfCatalysts = [
-    new DtpfCatalyst(0, "Crude", "f:gregtech:exciteddtcc", 14_514_093, 0.125),
-    new DtpfCatalyst(1, "Prosaic", "f:gregtech:exciteddtpc", 66_768_460, 0.25),
-    new DtpfCatalyst(2, "Resplendent", "f:gregtech:exciteddtrc", 269_326_451, 0.5),
-    new DtpfCatalyst(3, "Exotic", "f:gregtech:exciteddtec", 1_073_007_393, 1.0),
-    new DtpfCatalyst(4, "Stellar", "f:gregtech:exciteddtsc", 4_276_767_521, 2.0),
-]
-
-let DtpfCatalystById = Object.fromEntries(DtpfCatalysts.map(cat => [cat.id, cat]));
-
-function findDtpfCatalyst(items:RecipeInOut[]) : DtpfCatalyst | undefined {
-    for (let i=0; i<items.length; i++) {
-        let item = items[i];
-        if (item.type == RecipeIoType.FluidInput) {
-            let id = (item.goods as Fluid).id;
-            if (id in DtpfCatalystById) {
-                return DtpfCatalystById[id];
-            }
-        }
-    }
-}
-
-machines["Dimensionally Transcendent Plasma Forge"] = {
-    overclocker: (recipe, choices) => {
-        if (choices.convergence > 0)
-            return StandardOverclocker.onlyPerfect();
-        else
-            return StandardOverclocker.onlyNormal();
-    },
-    speed: 1,
-    power: (recipe, choices) => choices.convergence > 0 ? 0.5 : 1,
-    recipe: (recipe, choices, items) => {
-        items = createEditableCopy(items);
-
-        let discount = choices.convergence > 0 ? 0.5 : (choices.discount == 0 ? 0.0 : 0.5);
-
-        if (choices.convergence > 0) {
-            // Logic based on https://github.com/GTNewHorizons/GT5-Unofficial/blob/bdfefcfc4f851a07303cfdde21c26767210ebf57/src/main/java/gregtech/common/tileentities/machines/multi/MTEPlasmaForge.java#L1035-L1041
-            let amperage = recipe.recipe?.gtRecipe.amperage || 1;
-            let voltage = recipe.recipe?.gtRecipe.voltage || TIER_LV;
-            let machineConsumption = amperage * voltage * Math.pow(4, recipe.overclockTiers);
-            let durationTicks = (recipe.recipe?.gtRecipe.durationTicks || 1) / Math.pow(4, recipe.overclockTiers);
-            let requiredCatalystEu = (Math.pow(2, recipe.overclockTiers) - 1) * machineConsumption * durationTicks;
-
-            let catalyst = findDtpfCatalyst(items) || DtpfCatalysts[choices.catalyst];
-
-            let requiredCatalystLiters = requiredCatalystEu / catalyst.euPerLiter;
-            let residueLiters = Math.floor(requiredCatalystLiters * catalyst.residuePerLiter);
-
-            let transdimensionalAlignmentMatrixItem : RecipeInOut = {
-                type : RecipeIoType.ItemInput,
-                goodsPtr : 0,
-                goods : Repository.current.GetById<Item>("i:gregtech:gt.metaitem.03:32758") as Item,
-                slot : 0,
-                amount : 0,
-                probability : 1.0
-            };
-
-            let catalystFluid : RecipeInOut = { 
-                type : RecipeIoType.FluidInput,
-                goodsPtr : 0,
-                goods : Repository.current.GetById<Fluid>(catalyst.id) as Fluid,
-                slot : 0,
-                amount : requiredCatalystLiters,
-                probability : 1.0
-            };
-
-            let residueFluid : RecipeInOut = {
-                type : RecipeIoType.FluidOutput,
-                goodsPtr : 0,
-                goods : Repository.current.GetById<Fluid>("f:gregtech:dimensionallytranscendentresidue") as Fluid,
-                slot : 0,
-                amount : residueLiters,
-                probability : 1.0
-            };
-
-            items.push(transdimensionalAlignmentMatrixItem);
-            items.push(catalystFluid);
-            items.push(residueFluid);
-        }
-        
-        if (discount > 0.0) {
-            for (let i=0; i<items.length; i++) {
-                let item = items[i];
-                if (item.type == RecipeIoType.FluidInput) {
-                    let id = (item.goods as Fluid).id;
-                    if (id in DtpfCatalystById) {
-                        item.amount *= (1-discount);
-                    }
-                }
-            }
-        }
-
-        return items;
-    },
-    parallels: 1,
-    choices: {
-        convergence: {
-            description: "Convergence", choices: ["No Convergence", "Convergence"]
-        },
-        discount: {
-            description: "Discount", choices: ["0%", "50%"]
-        },
-        catalyst: {
-            description: "Catalyst", choices: DtpfCatalysts.map(cat => cat.displayName)
-        },
-    },
-    enforceChoiceConstraints: (recipe, choices) => {
-        if (choices.convergence > 0) {
-            choices.discount = 1;
-        }
-
-        let catalyst = findDtpfCatalyst(recipe.recipe?.items || []);
-        if (catalyst) {
-            choices.catalyst = catalyst.tier;
-        }
-    }
-};
-
-machines["Bricked Blast Furnace"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Clarifier Purification Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Residual Decontaminant Degasser Purification Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Flocculation Purification Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Ozonation Purification Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["pH Neutralization Purification Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Extreme Temperature Fluctuation Purification Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Absolute Baryonic Perfection Purification Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    info: "Machine not implemented",
-};
-
-machines["High Energy Laser Purification Unit"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    info: "Machine not implemented",
-};
-
-machines["Pyrolyse Oven"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => (choices.coils + 1) * 0.5,
-    power: 1,
-    parallels: 1,
-    choices: {coils: CoilTierChoice},
-};
-
-machines["Elemental Duplicator"] = {
-    overclocker: StandardOverclocker.onlyPerfect(),
-    speed: 2,
-    power: 1,
-    parallels: (recipe) => 8 * (recipe.voltageTier + 1),
-};
-
-machines["Research station"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Boldarnator"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3,
-    power: 0.75,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 8,
-};
-
-machines["Large Thermal Refinery"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2.5,
-    power: 0.8,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 8,
-};
-
-machines["Transcendent Plasma Mixer"] = {
-    overclocker: NullOverclocker.instance,
-    speed: 1,
-    power: 10,
-    parallels: (recipe, choices) => choices.parallels,
-    choices: {parallels: {description: "Parallels", min: 1}}
-};
-
-machines["Forge of the Gods"] = notImplementedMachine;
-
-machines["Vacuum Freezer"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Mega Vacuum Freezer"] = {
-    overclocker: (recipe, choices) => StandardOverclocker.perfectThenNormal(choices.coolant),
-    speed: 1,
-    power: 1,
-    parallels: 256,
-    choices: {coolant: {description: "Coolant", choices: ["No Coolant", "Molten SpaceTime", "Spatially Enlarged Fluid", "Molten Eternity"]}},
-    info: "Coolant calculation not implemented.",
-};
-
-machines["Industrial Wire Factory"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3,
-    power: 0.75,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 4,
-};
-
-machines["Digester"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Dissolution Tank"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Source Chamber"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    info: "Output energy scales with EU/t up to the point shown in the recipe.",
-};
-
-machines["Target Chamber"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Alloy Blast Smelter"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Mega Alloy Blast Smelter"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => Math.max(1, 1 - 0.05 * (choices.coilTier - 3)),
-    power: (recipe, choices) => Math.pow(0.95, choices.coilTier - recipe.voltageTier),
-    parallels: 256,
-    choices: {coilTier: CoilTierChoice},
-    info: "Assumes matching glass tier.",
-};
-
-machines["Industrial Coke Oven"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: (recipe, choices) => 1 - (recipe.voltageTier + 1) * 0.04,
-    parallels: (recipe, choices) => choices.casingType == 1 ? 30 : 18,
-    choices: {casingType: {description: "Casing Type", choices: ["Heat Resistant Casings", "Heat Proof Casings"]}},
-};
-
-machines["Cryogenic Freezer"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2.2,
-    power: 0.9,
-    parallels: 8,
-};
-
-machines["COMET - Compact Cyclotron"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Zhuhai - Fishing Port"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: (recipe) => ((recipe.voltageTier + 1) + 1) * 2,
-};
-
-machines["Reactor Fuel Processing Plant"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Flotation Cell Regulator"] = {
-    overclocker: StandardOverclocker.onlyPerfect(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["ExxonMobil Chemical Plant"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: (recipe, choices) => {
-        return choices.coilTier * 0.5 + 0.5;
-    },
-    power: 1,
-    parallels: (recipe, choices) => (choices.pipeFluidCasingTier + 1) * 2,
-    choices: {coilTier: CoilTierChoice,
-        pipeFluidCasingTier:PipeFluidCasingTierChoice
-    },
-    recipe: (recipe, choices, items) => {
-        if (choices.coilTier >= 10 && choices.pipeFluidCasingTier >= 3)
-            return items;
-        let catalystNumber = items.findIndex(item => item.type == RecipeIoType.ItemInput && item.goods instanceof Item && item.goods.name.endsWith("Catalyst"));
-        if (catalystNumber == -1)
-            return items;
-        let catalystUsage = (1 - 0.2 * choices.pipeFluidCasingTier) / 50;
-        items = createEditableCopy(items);
-        items[catalystNumber].amount = catalystUsage;
-        return items;
-    }
-};
-
-machines["Thorium Reactor [LFTR]"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Matter Fabrication CPU"] = {
-    overclocker: StandardOverclocker.onlyPerfect(),
-    speed: 1,
-    power: 0.8,
-    parallels: (recipe, choices) => {
-        let scrap = recipe.recipe?.gtRecipe?.voltageTier == TIER_LV;
-        return scrap ? 64 : 8 * (recipe.voltageTier + 1);
-    },
-};
-
-machines["Molecular Transformer"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Industrial Centrifuge"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2.25,
-    power: 0.9,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 6,
-};
-
-machines["Utupu-Tanuri"] = {
-    overclocker: (recipe, choices) => StandardOverclocker.perfectThenNormal(Math.floor(choices.heatIncrements / 2)),
-    speed: (recipe, choices) => 2.2 * Math.pow(1.05, choices.heatIncrements),
-    power: 0.5,
-    parallels: 4,
-    choices: {heatIncrements: {description: "Heat Difference Tiers", min: 0}},
-    info: "Extracting heat difference from the recipe is not implemented.",
-};
-
-machines["Industrial Electrolyzer"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2.8,
-    power: 0.9,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 2,
-};
-
-machines["Industrial Mixing Machine"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 3.5,
-    power: 1,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 8,
-};
-
-machines["Nuclear Salt Processing Plant"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 2.5,
-    power: 1,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 2,
-};
-
-machines["IsaMill Grinding Machine"] = {
-    overclocker: StandardOverclocker.onlyPerfect(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-machines["Quantum Force Transformer"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: (recipe, choices) => choices.catalysts,
-    recipe: (recipe, choices, items) => {
-        const numOutputs = recipe.getOutputCount();
-        if (numOutputs == 0) {
-            return recipe.recipe?.items ?? [];
-        }
-        
-        const focusTier = recipe.recipe?.gtRecipe.MetadataByKey("qft_focus_tier") ?? 1;
-
-        const baseProbability = 1.0 / numOutputs;
-        
-        items = createEditableCopy(recipe.recipe?.items || []);
-        // NOTE: we rely on this matching the NEI order
-        let j = 0;
-        for (let i=0; i<items.length; i++) {
-            let item = items[i];
-            if (item.type == RecipeIoType.FluidOutput || item.type == RecipeIoType.ItemOutput) {
-                let actualProbability = baseProbability;
-
-                // Singular focusing
-                if (choices.focusedOutput > 0) {
-                    if (choices.focusedOutput == j + 1) {
-                        // Increase due to singular focus
-                        if (choices.shielding + 1 == focusTier) {
-                            actualProbability += (baseProbability - baseProbability / 2.0) * (numOutputs - 1);
-                        } else if (choices.shielding + 1 == focusTier + 1) {
-                            actualProbability += (baseProbability - baseProbability / 4.0) * (numOutputs - 1);
-                        } else if (choices.shielding + 1 >= focusTier + 2) {
-                            actualProbability = 1.0;
-                        }
-                    } else {
-                        // Decrease due to singular focus
-                        if (choices.shielding + 1 == focusTier) {
-                            actualProbability /= 2.0;
-                        } else if (choices.shielding + 1 == focusTier + 1) {
-                            actualProbability /= 4.0;
-                        } else if (choices.shielding + 1 >= focusTier + 2) {
-                            actualProbability = 0.0;
-                        }
-                    }
-                }
-
-                if (choices.focusedAll) {
-                    if (choices.shielding + 1 == focusTier) {
-                        actualProbability += (1.0 - actualProbability) / 4.0;
-                    } else if (choices.shielding + 1 == focusTier + 1) {
-                        actualProbability += (1.0 - actualProbability) / 3.0;
-                    } else if (choices.shielding + 1 >= focusTier + 2) {
-                        actualProbability += (1.0 - actualProbability) / 2.0;
-                    }
-                }
-
-                item.probability = actualProbability;
-                ++j;
-            }
-        }
-
-        if (choices.focusedOutput > 0) {
-            let neptuniumPlasmaFluid : RecipeInOut = {
-                type : RecipeIoType.FluidInput,
-                goodsPtr : 0,
-                goods : Repository.current.GetById<Fluid>("f:miscutils:plasma.neptunium") as Fluid,
-                slot : 0,
-                amount : Math.floor(4 * (choices.shielding + 1) * Math.sqrt(choices.catalysts)),
-                probability : 1.0
-            };
-            items.push(neptuniumPlasmaFluid);
-        }
-
-        if (choices.focusedAll) {
-            let fermiumPlasmaFluid : RecipeInOut = {
-                type : RecipeIoType.FluidInput,
-                goodsPtr : 0,
-                goods : Repository.current.GetById<Fluid>("f:miscutils:plasma.fermium") as Fluid,
-                slot : 0,
-                amount : Math.floor(4 * (choices.shielding + 1) * Math.sqrt(choices.catalysts)),
-                probability : 1.0
-            };
-            items.push(fermiumPlasmaFluid);
-        }
-
-        return items;
-    },
-    choices: {
-        catalysts: {description: "Catalysts", min: 1},
-        shielding: {description: "Shielding", choices: ["Neutron", "Cosmic", "Infinity", "SpaceTime"]},
-        manipulator: {description: "Manipulator", choices: ["Neutron", "Cosmic", "Infinity", "SpaceTime"]},
-        focusedOutput: {description: "Focused Output", choices: ["None", "1", "2", "3", "4", "5", "6"]},
-        focusedAll: {description: "Focus All", choices: ["No", "Yes"]}
-    },    
-    enforceChoiceConstraints: (recipe, choices) => {
-        const focusTier = recipe.recipe?.gtRecipe.MetadataByKey("qft_focus_tier") ?? 1;
-        choices.manipulator = Math.max(choices.manipulator, focusTier - 1);
-
-        if (choices.shielding + 1 < focusTier) {
-            // Shielding not high enough to be able to focus.
-            choices.focusedOutput = 0;
-            choices.focusedAll = 0;
-        } else {
-            const numOutputs = recipe.getOutputCount();
-            choices.focusedOutput = Math.min(choices.focusedOutput, numOutputs);
-        }
-    }
-};
-
-machines["Sparge Tower Controller"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 1,
-    power: 1,
-    parallels: 1,
-};
-
-let sawMultipliers = [0, 1, 2, 4];
-let saplingsMultipliers = [0, 1, 4];
-let leavesMultipliers = [0, 1, 2, 4];
-let fruitsMultipliers = [0, 1];
-
-machines["Tree Growth Simulator"] = {
-    overclocker: NullOverclocker.instance,
-    speed: 1,
-    recipe: (recipe, choices, items) => {
-        items = createEditableCopy(items);
-        let tier = recipe.voltageTier + 1;
-        let multiplier = (2 * tier * tier - 2 * tier + 5);
-        for (let i=0; i<items.length; i++) {
-            let item = items[i];
-            if (item.type == RecipeIoType.ItemOutput && item.goods instanceof Item) {
-                if (item.slot == 0)
-                    item.amount = item.amount * sawMultipliers[choices.saw] * multiplier;
-                if (item.slot == 1)
-                    item.amount = item.amount * saplingsMultipliers[choices.saplings] * multiplier;
-                if (item.slot == 2)
-                    item.amount = item.amount * leavesMultipliers[choices.leaves] * multiplier;
-                if (item.slot == 3)
-                    item.amount = item.amount * fruitsMultipliers[choices.fruits] * multiplier;
-            }
-        }
-        return items;
-    },
-    choices: {
-        saw: {description: "Saw", choices: ["No saw", "Saw (x1)", "Buzzsaw (x2)", "Chainsaw (x4)"]},
-        saplings: {description: "Saplings", choices: ["No grafter", "Branch cutter (x1)", "Grafter (x4)"]},
-        leaves: {description: "Leaves", choices: ["No shears", "Shears (x1)", "Wire Cutter (x2)", "Automatic Snips (x4)"]},
-        fruits: {description: "Fruits", choices: ["No knife", "Knife (x1)"]}
-    },
-    power: 1,
-    parallels: 1,
-};
-
-machines["Draconic Evolution Fusion Crafter"] = {
-    overclocker: (recipe, choices) => {
-        const buildingTierCoil = choices.casings + 1;
-        const recipeTierCoil = recipe.recipe?.gtRecipe.MetadataByKey("defc_casing_tier") ?? 1;
-        const maxPerfectOverclocks = Math.max(0, buildingTierCoil - recipeTierCoil);
-        return StandardOverclocker.perfectThenNormal(maxPerfectOverclocks);
-    },
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    choices: {casings: {description:"Fusion casings", choices:["Bloody Ichorium", "Draconium", "Wyvern", "Awakened Draconium", "Chaotic"]}},
-    enforceChoiceConstraints: (recipe, choices) => {
-        const recipeTier = recipe.recipe?.gtRecipe.MetadataByKey("defc_casing_tier") ?? 1;
-        choices.casings = Math.max(choices.casings, recipeTier - 1);
-    }
-};
-
-machines["Large Sifter Control Block"] = {
-    overclocker: StandardOverclocker.onlyNormal(),
-    speed: 5,
-    power: 0.75,
-    parallels: (recipe) => (recipe.voltageTier + 1) * 4,
-};
-
-function getFusionTier(recipe:Recipe): number {
-    const cost = recipe.gtRecipe.MetadataByKey("fusion_threshold") ?? 0;
-    const plasmaTier = recipe.gtRecipe.MetadataByKey("fog_plasma_tier") ?? 0;
-    const costTier = getFusionTierByStartupCost(cost);
-    const voltageTier = (recipe.gtRecipe.voltageTier - TIER_LUV + 1) || 0;
-    return Math.max(plasmaTier, costTier, voltageTier);
-}
-
-function makeFusionOverclocker(fusionTier:number, overclockMultiplier:number) {
-    return function (recipeModel:RecipeModel, choices:{[key:string]:number}) {
-        const recipeTier = getFusionTier(recipeModel.recipe!);
-        const maxOverclocks = fusionTier - recipeTier;
-        return StandardOverclocker.onlyPerfect(maxOverclocks, overclockMultiplier);
+        choices,
+        overclocker: NullOverclocker.instance,
+        speed: 1,
+        power,
+        parallels,
+        ignoreParallelLimit: true,
+        info,
     };
 }
 
-function makeFusionRecipeExcluder(tier:number) {
-    return (recipe:Recipe) => {
-        return tier < getFusionTier(recipe);
-    };
-}
-
-machines["Fusion Control Computer Mark I"] = {
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    fixedVoltageTier: TIER_LUV,
-    overclocker: makeFusionOverclocker(1, 2),
-    excludesRecipe: makeFusionRecipeExcluder(1),
-    info: "NOTE: overrides voltage tier"
+// Crafters whose machine cannot be derived from modifiers. Keyed by the binary
+// item id (i:<mod>:<internalName>:<damage>).
+const customMachineRegistry:{[crafterId:string]: () => Machine} = {
+    "i:gtceu:gas_large_turbine:0": () => makeTurbineMachine({ controllerTier: 4, baseProduction: 4096, parallelBonus: 1 }),
+    "i:gtceu:plasma_large_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 1 }),
+    "i:gtceu:supreme_plasma_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 6, boostTable: [0.9, 1.25, 2] }),
+    "i:gtceu:nyinsane_plasma_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 12, boostTable: [0.8, 1.5, 3] }),
 };
 
-machines["Fusion Control Computer Mark II"] = {
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    fixedVoltageTier: TIER_ZPM,
-    overclocker: makeFusionOverclocker(2, 2),
-    excludesRecipe: makeFusionRecipeExcluder(2),
-    info: "NOTE: overrides voltage tier"
-};
-
-machines["Fusion Control Computer Mark III"] = {
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    fixedVoltageTier: TIER_UV,
-    overclocker: makeFusionOverclocker(3, 2),
-    excludesRecipe: makeFusionRecipeExcluder(3),
-    info: "NOTE: overrides voltage tier"
-};
-
-machines["FusionTech MK IV"] = {
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    fixedVoltageTier: TIER_UHV,
-    overclocker: makeFusionOverclocker(4, 4),
-    excludesRecipe: makeFusionRecipeExcluder(4),
-    info: "NOTE: overrides voltage tier"
-};
-
-machines["FusionTech MK V"] = {
-    speed: 1,
-    power: 1,
-    parallels: 1,
-    fixedVoltageTier: TIER_UEV,
-    overclocker: makeFusionOverclocker(5, 4),
-    excludesRecipe: makeFusionRecipeExcluder(5),
-    info: "NOTE: overrides voltage tier"
-};
-
-machines["Compact Fusion Computer MK-I Prototype"] = {
-    speed: 1,
-    power: 1,
-    parallels: 64,
-    fixedVoltageTier: TIER_LUV + 3,
-    overclocker: makeFusionOverclocker(1, 2),
-    excludesRecipe: makeFusionRecipeExcluder(1),
-    info: "NOTE: overrides voltage tier"
-};
-
-function getCompactFusionParallel(recipe:RecipeModel, tier:number) {
-    const fusionTier = getFusionTier(recipe.recipe!);
-    return (1 + tier - fusionTier) * 64;
-}
-
-machines["Compact Fusion Computer MK-II"] = {
-    speed: 1,
-    power: 1,
-    parallels: (recipe) => getCompactFusionParallel(recipe, 2),
-    fixedVoltageTier: TIER_ZPM + 4,
-    overclocker: makeFusionOverclocker(2, 2),
-    excludesRecipe: makeFusionRecipeExcluder(2),
-    info: "NOTE: overrides voltage tier"
-};
-
-machines["Compact Fusion Computer MK-III"] = {
-    speed: 1,
-    power: 1,
-    parallels: (recipe) => getCompactFusionParallel(recipe, 3),
-    fixedVoltageTier: TIER_UV + 4,
-    overclocker: makeFusionOverclocker(3, 2),
-    excludesRecipe: makeFusionRecipeExcluder(3),
-    info: "NOTE: overrides voltage tier"
-};
-
-machines["Compact Fusion Computer MK-IV Prototype"] = {
-    speed: 1,
-    power: 1,
-    parallels: (recipe) => getCompactFusionParallel(recipe, 4),
-    fixedVoltageTier: TIER_UHV + 4,
-    overclocker: makeFusionOverclocker(4, 4),
-    excludesRecipe: makeFusionRecipeExcluder(4),
-    info: "NOTE: overrides voltage tier"
-};
-
-machines["Compact Fusion Computer MK-V"] = {
-    speed: 1,
-    power: 1,
-    parallels: (recipe) => getCompactFusionParallel(recipe, 5),
-    fixedVoltageTier: TIER_UEV + 5,
-    overclocker: makeFusionOverclocker(5, 4),
-    excludesRecipe: makeFusionRecipeExcluder(5),
-    info: "NOTE: overrides voltage tier"
-};
-
-const EyeOfHarmonyTierNames = [
-    "1 - Crude",
-    "2 - Primitive",
-    "3 - Stable",
-    "4 - Advanced",
-    "5 - Superb",
-    "6 - Exotic",
-    "7 - Perfect",
-    "8 - Tipler",
-    "9 - Gallifreyan"
-]
-
-function getEyeOfHarmonyRecipeTier(recipeModel : RecipeModel) : number {
-    let planetItem = undefined;
-    const items = recipeModel.recipe?.items;
-    if (items === undefined)
-        return 0;
-
-    for (let i = 0; i < items.length; ++i) {
-        const item = items[i];
-        if (item.type == RecipeIoType.ItemInput) {
-            planetItem = item;
-            break;
-        }
-    }
-
-    if (planetItem === undefined)
-        return 0;
-
-    // "Overworld", "T4: Venus", "T10: Deep Dark"
-    const parts = (planetItem.goods as Item).name.split(":");
-    if (parts.length == 2) {
-        // Remove leading "T".
-        return parseInt(parts[0].substring(1)) || 0;
-    }
-
-    return 0;
-}
-
-function getEyeOfHarmonySuccessRateWithPity(originalSuccessRate: number) : number {
-    const boost = (1 - originalSuccessRate) * originalSuccessRate;
-    if (originalSuccessRate < 1 && boost == 0)
-        return originalSuccessRate;
-
-    let chanceToHaveExactlyNAttempts = [0, originalSuccessRate];
-
-    let currentSuccessChance = originalSuccessRate;
-    while (currentSuccessChance < 1) {
-        let currentFailChance = 1 - currentSuccessChance;
-        currentSuccessChance += boost;
-        let prob = currentFailChance * currentSuccessChance;
-        chanceToHaveExactlyNAttempts.push(prob);
-    }
-
-    let expectedNumberOfAttempts = 0;
-    for (let i = 1; i < chanceToHaveExactlyNAttempts.length; ++i) {
-        expectedNumberOfAttempts += chanceToHaveExactlyNAttempts[i] * i;
-    }
-
-    return 1 / expectedNumberOfAttempts;
-}
-
-function getEyeOfHarmonySpeed(recipeModel: RecipeModel, choices: {[key:string]:number}) : number {
-    const recipeTier = Math.min(getEyeOfHarmonyRecipeTier(recipeModel), 9);
-    const compressionTier = choices.compression + 1;
-    const tiersAbove = Math.max(0, compressionTier - recipeTier);
-
-    const durationMultiplierFromDilation = Math.pow(0.5, choices.dilation);
-    const durationMultiplierFromTier = Math.pow(0.97, tiersAbove);
-    
-    return 1 / (durationMultiplierFromDilation * durationMultiplierFromTier);
-}
-
-function getEyeOfHarmonyParallel(astralArrays: number) : number {
-    if (astralArrays == 0)
-        return 1;
-
-    const parallelExponent = Math.floor(Math.log(8 * astralArrays) / Math.log(1.7))
-    return Math.pow(2, parallelExponent);
-}
-
-machines["Eye of Harmony"] = {
-    speed: getEyeOfHarmonySpeed,
-    power: 1,
-    parallels: (recipeModel, choices) => {
-        return getEyeOfHarmonyParallel(choices.astralArrays);
-    },
-    overclocker: (recipeModel, choices) => {
-        return StandardOverclocker.onlyNormal(choices.overclocks);
-    },
-    recipe: (recipeModel, choices, items) => {
-        items = createEditableCopy(items);
-
-        const recipeTier = Math.min(getEyeOfHarmonyRecipeTier(recipeModel), 9);
-
-        const successPenalty = 0.0925 * choices.dilation;
-        const successBoost = 0.05 * choices.stabilisation;
-        const yieldPenalty = 0.05 * choices.stabilisation;
-        const powerPenalty = 0.4 - 0.05 * choices.stabilisation;
-
-        const baseSuccessChance = 1 - 0.05 * recipeTier;
-        const rawSuccessChance = Math.max(0, baseSuccessChance - successPenalty + successBoost);
-        const successChance = getEyeOfHarmonySuccessRateWithPity(rawSuccessChance);
-
-        const basicFluidNeeded = 1e9 * (recipeTier + 1);
-
-        for (let i = 0; i < items.length; ++i) {
-            let item = items[i];
-            if (item.type == RecipeIoType.ItemOutput || item.type == RecipeIoType.FluidOutput) {
-                item.probability = successChance;
-                item.amount *= 1 - yieldPenalty;
-            } else if (item.type == RecipeIoType.FluidInput) {
-                const fluid = item.goods as Fluid;
-                if (choices.astralArrays) {
-                    if (fluid.id == "f:gregtech:rawstarmatter") {
-                        item.amount = (12.4 / 1e6) * basicFluidNeeded;
-                    }
-                } else {
-                    if (fluid.id == "f:GalacticraftMars:hydrogen" || fluid.id == "f:GalacticraftMars:helium") {
-                        item.amount = basicFluidNeeded;
-                    }
-                }
-            } else if (item.type == RecipeIoType.ItemInput) {
-                item.amount = 1;
-            }
-        }
-
-        let spacetimeFluid : RecipeInOut = {
-            type : RecipeIoType.FluidOutput,
-            goodsPtr : 0,
-            goods : Repository.current.GetById<Fluid>("f:gregtech:molten.spacetime") as Fluid,
-            slot : 0,
-            amount : rawSuccessChance * 14400 * Math.pow(2, recipeTier),
-            probability : 1 - successChance
-        };
-        items.push(spacetimeFluid);
-
-        const recipeDurationSeconds = (recipeModel.recipe?.gtRecipe.durationSeconds || 1) / getEyeOfHarmonySpeed(recipeModel, choices);
-
-        // TODO: either remove as we agreed not to calculate such things, or provide display via some means
-        const parallel = getEyeOfHarmonyParallel(choices.astralArrays);
-        console.info("Cycle duration: " + recipeDurationSeconds.toString() + "s. Success chance: " + (rawSuccessChance*100).toString() + "%. Parallel: " + parallel.toString() + ".");
-        
-        return items;
-    },
-    choices: {
-        compression: {
-            description: "Compression", choices: EyeOfHarmonyTierNames
-        },
-        dilation: {
-            description: "Time Dilation", choices: EyeOfHarmonyTierNames
-        },
-        stabilisation: {
-            description: "Stabilisation", choices: EyeOfHarmonyTierNames
-        },
-        astralArrays: {
-            description: "Astral Arrays"
-        },
-        overclocks: {
-            description: "Overclocks"
-        }
-    },
-    fixedVoltageTier: TIER_UXV,
-    enforceChoiceConstraints: (recipeModel, choices) => {
-        const requiredTier = Math.min(getEyeOfHarmonyRecipeTier(recipeModel), 9);
-        choices.compression = Math.max(choices.compression, requiredTier - 1);
-
-        if (Number.isNaN(choices.astralArrays))
-            choices.astralArrays = 0;
-        else
-            choices.astralArrays = Math.min(Math.max(choices.astralArrays, 0), 8637);
-        
-        if (Number.isNaN(choices.overclocks))
-            choices.overclocks = 0;
-        else
-            choices.overclocks = Math.min(Math.max(choices.overclocks, 0), 24);
-    },
-    info: "NOTE: Power input/output not calculated"
+// Builds (and memoizes) the Machine for a given multiblock crafter from its
+// exported recipeModifiers. Replaces the former hardcoded machine table.
+export function BuildMachineFromCrafter(crafter:Item, recipeType:RecipeType):Machine {
+    const cached = machineCache[crafter.id];
+    if (cached)
+        return cached;
+    const custom = customMachineRegistry[crafter.id];
+    const machine = custom ? custom() : ComposeMachineFromModifiers(crafter, recipeType);
+    machineCache[crafter.id] = machine;
+    return machine;
 }

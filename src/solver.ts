@@ -1,7 +1,7 @@
 import { Model, Solution } from "./types/javascript-lp-solver.js";
 import { PageModel, RecipeGroupModel, RecipeModel, ProductModel, FlowInformation, LinkAlgorithm, OverclockResult } from './page.js';
 import { Goods, Item, OreDict, Recipe, RecipeIoType, RecipeObject, Repository } from "./repository.js";
-import { singleBlockMachine, machines, notImplementedMachine, GetSingleBlockMachine, GetParameter } from "./machines.js";
+import { singleBlockMachine, notImplementedMachine, GetSingleBlockMachine, GetParameter, BuildMachineFromCrafter } from "./machines.js";
 import { voltageTier } from "./utils.js";
 
 class LinkCollection {
@@ -93,7 +93,7 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         if (crafter === null && !canBeSingleblock) {
             for(let i = 0; i < recipe.recipeType.multiblocks.length; ++i) {
                 const item = recipe.recipeType.multiblocks[i];
-                const machine = machines[item.name];
+                const machine = BuildMachineFromCrafter(item, recipe.recipeType);
                 const excluded = machine?.excludesRecipe ? machine.excludesRecipe(recipe) : false;
                 if (!excluded) {
                     crafter = item;
@@ -104,7 +104,7 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
                 crafter = recipe.recipeType.defaultCrafter;
         }
         let isSingleblock = !crafter;
-        machineInfo = crafter ? (machines[crafter.name] || notImplementedMachine) : GetSingleBlockMachine(recipe.recipeType);
+        machineInfo = crafter ? BuildMachineFromCrafter(crafter, recipe.recipeType) : GetSingleBlockMachine(recipe.recipeType);
         recipeModel.multiblockCrafter = crafter;
         recipeModel.machineInfo = machineInfo;
         if (machineInfo.fixedVoltageTier) {
@@ -129,7 +129,7 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         const durationTicksForRounding = machineInfo.roundAfterParallels ? (gtRecipe.durationTicks / parallels) : gtRecipe.durationTicks;
         const estimatedDurationTicks = durationTicksForRounding / (overclockResult.overclockSpeed * speedModifier);
         let speedCorrectionFactor = 1.0;
-        if (estimatedDurationTicks > 1) {
+        if (!machineInfo.subtick && estimatedDurationTicks > 1) {
             const roundedEstimatedDurationTicks = Math.floor(estimatedDurationTicks);
             speedCorrectionFactor = estimatedDurationTicks / roundedEstimatedDurationTicks;
         }
@@ -156,7 +156,7 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         let amount = slot.amount * slot.probability;
         let container = goods instanceof Item && goods.container;
 
-        if (slot.type == RecipeIoType.OreDictInput) {
+        if (slot.type == RecipeIoType.OreDictInput || slot.type == RecipeIoType.FluidOreDictInput) {
             collection.AddInputOreDict(goods, amount, varName, recipeModel);
         } else if (container) {
             if (slot.type == RecipeIoType.ItemOutput) {
@@ -238,7 +238,7 @@ function ApplySolutionRecipe(recipeModel:RecipeModel, solution:Solution):void
     recipeModel.crafterCount = 0;
     for (const item of recipeModel.recipeItems) {
         var goods:RecipeObject = item.goods;
-        if (item.type == RecipeIoType.OreDictInput && recipeModel.selectedOreDicts[item.goods.id])
+        if ((item.type == RecipeIoType.OreDictInput || item.type == RecipeIoType.FluidOreDictInput) && recipeModel.selectedOreDicts[item.goods.id])
             goods = recipeModel.selectedOreDicts[item.goods.id];
 
         var isProduction = item.type == RecipeIoType.FluidOutput || item.type == RecipeIoType.ItemOutput;

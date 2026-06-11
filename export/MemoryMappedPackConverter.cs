@@ -19,7 +19,7 @@ namespace Source
         private readonly List<int> rawData = new List<int>();
         private readonly string[] serviceItems = new[] { "Quest Book", "Anvil" };
         
-        private const int DATA_VERSION = 5;
+        private const int DATA_VERSION = 6;
 
         public MemoryMappedPackConverter(Repository repository)
         {
@@ -30,7 +30,7 @@ namespace Source
             WriteObjectRef(repository.oreDicts);
             WriteObjectRef(repository.recipeTypes);
             WriteObjectRef(repository.recipes);
-            WriteObjectRef(Array.ConvertAll(serviceItems, x => this.repository.items.First(y => y.name == x)));
+            WriteObjectRef(Array.ConvertAll(serviceItems, x => this.repository.items.FirstOrDefault(y => y.name == x)));
             WriteObjectRef(repository.remaps);
         }
 
@@ -81,6 +81,7 @@ namespace Source
                 case OreDict oreDict: Write(oreDict); return;
                 case GtRecipeInfo gtRecipe: Write(gtRecipe); return;
                 case RecipeMetadata metadata: Write(metadata); return;
+                case ItemMetadata itemMetadata: Write(itemMetadata); return;
                 case FluidContainer container: Write(container); return;
                 case int[] intArr: Write(intArr); return;
                 case IList genericList: Write(genericList); return;
@@ -115,10 +116,15 @@ namespace Source
             WriteInt(gtRecipe.voltageTier);
             WriteObjectRef(gtRecipe.metadata);
             WriteInt(gtRecipe.circuitConflicts);
-            WriteInt(gtRecipe.specialValue);
         }
         
         private void Write(RecipeMetadata metadata)
+        {
+            WriteStringRef(metadata.key);
+            WriteDouble(metadata.value);
+        }
+
+        private void Write(ItemMetadata metadata)
         {
             WriteStringRef(metadata.key);
             WriteDouble(metadata.value);
@@ -147,42 +153,41 @@ namespace Source
             WriteObjectRef(remap.to);
         }
 
+        // RecipeIoType ordering — must match src/repository.ts.
+        private const int IoItemInput = 0, IoOreDictInput = 1, IoFluidInput = 2, IoFluidOreDictInput = 3, IoItemOutput = 4, IoFluidOutput = 5;
+
         private object[] PackRecipeInOut(Recipe recipe)
         {
             var totalIO = recipe.fluidInputs.Length + recipe.fluidOutputs.Length + recipe.itemInputs.Length + recipe.itemOutputs.Length + recipe.oreDictInputs.Length;
             var arr = new object[totalIO * 5];
             var index = 0;
             foreach (var input in recipe.itemInputs)
-                WriteRecipeInput(arr, ref index, input);
+                WriteRecipeSlot(arr, ref index, IoItemInput, input.goods, input.slot, input.amount, input.probability);
             foreach (var input in recipe.oreDictInputs)
-                WriteRecipeInput(arr, ref index, input);
+                if (!IsFluidOreDict(input.goods))
+                    WriteRecipeSlot(arr, ref index, IoOreDictInput, input.goods, input.slot, input.amount, input.probability);
             foreach (var input in recipe.fluidInputs)
-                WriteRecipeInput(arr, ref index, input);
+                WriteRecipeSlot(arr, ref index, IoFluidInput, input.goods, input.slot, input.amount, input.probability);
+            foreach (var input in recipe.oreDictInputs)
+                if (IsFluidOreDict(input.goods))
+                    WriteRecipeSlot(arr, ref index, IoFluidOreDictInput, input.goods, input.slot, input.amount, input.probability);
             foreach (var output in recipe.itemOutputs)
-                WriteRecipeOutput(arr, ref index, output);
+                WriteRecipeSlot(arr, ref index, IoItemOutput, output.goods, output.slot, output.amount, output.probability);
             foreach (var output in recipe.fluidOutputs)
-                WriteRecipeOutput(arr, ref index, output);
+                WriteRecipeSlot(arr, ref index, IoFluidOutput, output.goods, output.slot, output.amount, output.probability);
             return arr;
         }
 
-        private void WriteRecipeInput<T>(object[] arr, ref int index, RecipeInput<T> input) where T : GoodsOrDict
+        private static bool IsFluidOreDict(OreDict ore)
+            => ore.variants.Length > 0 && ore.variants[0] is Fluid;
+
+        private void WriteRecipeSlot(object[] arr, ref int index, int ioType, object goods, int slot, int amount, int probability)
         {
-            var id = typeof(T) == typeof(Item) ? 0 : typeof(T) == typeof(Fluid) ? 2 : typeof(T) == typeof(OreDict) ? 1 : -1;
-            arr[index++] = id;
-            arr[index++] = input.goods;
-            arr[index++] = input.slot;
-            arr[index++] = input.amount;
-            arr[index++] = 100;
-        }
-        
-        private void WriteRecipeOutput<T>(object[] arr, ref int index, RecipeProduct<T> input) where T : Goods
-        {
-            var id = typeof(T) == typeof(Item) ? 3 : typeof(T) == typeof(Fluid) ? 4 : -1;
-            arr[index++] = id;
-            arr[index++] = input.goods;
-            arr[index++] = input.slot;
-            arr[index++] = input.amount;
-            arr[index++] = (int)Math.Round(input.probability * 100);
+            arr[index++] = ioType;
+            arr[index++] = goods;
+            arr[index++] = slot;
+            arr[index++] = amount;
+            arr[index++] = probability;
         }
 
         private void Write(Recipe recipe)
@@ -236,6 +241,8 @@ namespace Source
             WriteInt(item.stackSize);
             WriteInt(item.damage);
             WriteObjectRef(item.container);
+            WriteObjectRef(item.recipeModifiers);
+            WriteObjectRef(item.metadata);
         }
 
         private void Write(FluidContainer container)

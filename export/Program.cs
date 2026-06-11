@@ -8,7 +8,7 @@ class Program
     {
         if (args.Length == 0)
         {
-            Console.WriteLine("Usage: export <path to nesql export directory> [--output <path>] [--skipIcons]");
+            Console.WriteLine("Usage: export <path to export-data directory> [--output <path>] [--skipIcons]");
             Console.WriteLine("  --output <path>    Specify the output path for the generated files (default: current directory)");
             Console.WriteLine("  --skipIcons        Skip the icon generation step (you can't change item ban list or similar, or the icon index will be wrong)");
             Console.WriteLine("  --previous <path>  Path to previous data.bin to get old/obsolete recipes from");

@@ -1,0 +1,99 @@
+{
+  "name": "Coil Multiblocks",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:alloy_blast_smelter/ruthenium_trinium_americium_neutronate_gas",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:alloy_blast_smelter:0",
+        "choices": {
+          "coilTier": 2
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:chemical_skip/iron_iii_chloride_skip",
+        "voltageTier": 5,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:chemical_plant:0",
+        "choices": {
+          "parallels": 4,
+          "coilTier": 2
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:chemical_reactor/carbon_monoxide_from_coal_gem",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_chemical_reactor:0",
+        "choices": {
+          "coilTier": 2
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:cracker/hydro_crack_ethane",
+        "voltageTier": 4,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:cracker:0",
+        "choices": {
+          "coilTier": 2
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:electric_blast_furnace/blast_rhenate_w",
+        "voltageTier": 13,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:mega_blast_furnace:0",
+        "choices": {
+          "parallels": 4,
+          "coilTier": 2
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:implosion_compressor/implode_dust_grossular_itnt",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:super_implosion_compressor:0",
+        "choices": {
+          "coilTier": 2
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:large_chemical_reactor/qbit_cpu_wafer_quantum_eye",
+        "voltageTier": 5,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:extreme_chemical_reactor:0",
+        "choices": {
+          "parallels": 4,
+          "coilTier": 2
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:pyrolyse_oven/oil_medium",
+        "voltageTier": 3,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:pyrolyse_oven:0",
+        "choices": {
+          "coilTier": 2
+        }
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

@@ -237,7 +237,7 @@ export class RecipeModel extends RecipeGroupEntry
     parallels:number = 0;
     overclockName:string | undefined;
     overclockTiers:number = 0;
-    selectedOreDicts:{[key:string]:Item} = {};
+    selectedOreDicts:{[key:string]:Goods} = {};
     machineInfo:Machine = singleBlockMachine;
     multiblockCrafter:Item | null = null;
     recipeItems:RecipeInOut[] = [];
@@ -280,7 +280,9 @@ export class RecipeModel extends RecipeGroupEntry
             const currentValue = this.choices[key];
             const typedChoice = choice as Choice;
 
-            const min = typedChoice.min ?? 0;
+            let min = typedChoice.min ?? 0;
+            if (typedChoice.minIndex)
+                min = Math.max(min, typedChoice.minIndex(recipe));
             let max = typedChoice.max ?? Number.POSITIVE_INFINITY;
             if (typedChoice.choices)
                 max = typedChoice.choices.length - 1;
@@ -294,7 +296,7 @@ export class RecipeModel extends RecipeGroupEntry
     }
 
     public getInputCount(): number {
-        return this.recipeItems.filter((entry) => entry.type in [RecipeIoType.FluidInput, RecipeIoType.ItemInput, RecipeIoType.OreDictInput]).length;
+        return this.recipeItems.filter((entry) => [RecipeIoType.FluidInput, RecipeIoType.ItemInput, RecipeIoType.OreDictInput, RecipeIoType.FluidOreDictInput].includes(entry.type)).length;
     }
 
     public getOutputCount(): number {
@@ -302,7 +304,7 @@ export class RecipeModel extends RecipeGroupEntry
     }
 
     public getItemInputCount(): number {
-        return this.recipeItems.filter((entry) => entry.type in [RecipeIoType.ItemInput, RecipeIoType.OreDictInput]).length;
+        return this.recipeItems.filter((entry) => [RecipeIoType.ItemInput, RecipeIoType.OreDictInput].includes(entry.type)).length;
     }
 }
 

@@ -9,7 +9,7 @@ namespace Source.Data
     public class OreDict : GoodsOrDict
     {
         [NonSerialized] public string iid;
-        public Item[] variants;
+        public Goods[] variants;
         public void GenerateId(Repository repository)
         {
             if (!string.IsNullOrEmpty(id))
@@ -34,15 +34,16 @@ namespace Source.Data
         public string tooltip;
         public string unlocalizedName;
         public string nbt;
+        [NonSerialized] public string imagePath;
         public int[] production = Array.Empty<int>();
         public int[] consumption = Array.Empty<int>();
     }
 
     [Serializable]
-    public struct ItemAspect
+    public struct ItemMetadata
     {
-        public string name;
-        public int amount;
+        public string key;
+        public long value;
     }
 
     [Serializable]
@@ -52,7 +53,8 @@ namespace Source.Data
         public int stackSize;
         public int damage;
         [NonSerialized] public bool touched;
-        public List<ItemAspect> aspects = new List<ItemAspect>();
+        public List<string> recipeModifiers = new List<string>();
+        public List<ItemMetadata> metadata = new List<ItemMetadata>();
         public void GenerateId()
         {
             id = "i:" + mod + ":" + internalName + ":" + damage;

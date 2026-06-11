@@ -11,13 +11,13 @@ describe('Repository', () => {
     });
 
     it('should find items by id', () => {
-        const item = Repository.current.GetById<Item>('i:gregtech:gt.blockmachines:1000');
+        const item = Repository.current.GetById<Item>('i:gtceu:electric_blast_furnace:0');
         expect(item).toBeDefined();
-        expect(item?.name).toBe('Electric Blast Furnace');
+        expect(item?.name).toBe('Electric Blast Furnace [EBF]');
     });
 
     it('should find fluids by id', () => {
-        const fluid = Repository.current.GetById<Fluid>('f:IC2:ic2steam');
+        const fluid = Repository.current.GetById<Fluid>('f:gtceu:steam');
         expect(fluid).toBeDefined();
         expect(fluid?.name).toBe('Steam');
     });

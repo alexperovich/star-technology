@@ -200,7 +200,7 @@ export class PageManager {
         if (page) {
             SetCurrentPage(page);
             // Update window title
-            document.title = `${page.name} - GTNH calculator`;
+            document.title = `${page.name} - StarT calculator`;
         }
         
         this.render();
@@ -356,7 +356,7 @@ export class PageManager {
         if (this.currentPage === oldName) {
             this.currentPage = finalName;
             // Update window title
-            document.title = `${page.name} - GTNH calculator`;
+            document.title = `${page.name} - StarT calculator`;
         }
 
         this.render();

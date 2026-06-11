@@ -182,7 +182,7 @@ class NeiRecipeTypeInfo extends Array implements NeiRowAllocator<Recipe>
             let recipeItems = overrideIo ? overrideIo : recipe.items;
             dom.push(`<div class="nei-recipe-box" style="left:${Math.round(i * elementWidth * elementSize)}px; top:${rowY*elementSize}px; width:${Math.round(elementWidth*elementSize)}px; height:${elementHeight*elementSize}px">`);
             dom.push(`<div class="nei-recipe-io">`);
-            let index = this.BuildRecipeIoDom(dom, recipeItems, 0, RecipeIoType.OreDictInput, RecipeIoType.FluidInput, 0);
+            let index = this.BuildRecipeIoDom(dom, recipeItems, 0, RecipeIoType.OreDictInput, RecipeIoType.FluidOreDictInput, 0);
             dom.push(`<div class="arrow-container">`);
             dom.push(`<div class="arrow"></div>`);
             if (canSelectRecipe) {
@@ -215,7 +215,7 @@ const FuelTypeNames = ["Diesel", "Gas", "Hot", "Dense Steam", "Plasma", "Magic"]
 function DisplayHeatRequired(heat:number, recipe:Recipe):string {
     let rawTier = Math.min(13, Math.max(0, (heat - 1800) / 900));
     let tier = Math.ceil(rawTier);
-    if (tier > 0 && recipe.recipeType.name === "Blast Furnace") {
+    if (tier > 0 && recipe.recipeType.name === "Electric Blast Furnace") {
         let ebfTierSkip = TIER_MV + Math.ceil((rawTier - tier + 1) * 9);
         if (ebfTierSkip <= recipe.gtRecipe.voltageTier + 2) {
             if (recipe.gtRecipe.voltageTier >= ebfTierSkip)
@@ -250,7 +250,7 @@ function MetadataToString(metadata:GtRecipeMetadata, recipe:Recipe):string | nul
         case "GLASS": return "Glass tier: " + voltageTier[metadata.value-1].name;
         case "qft_focus_tier": return "QFT focus tier: " + metadata.value;
         case "recycle": return metadata.value == 1 ? "Recycle recipe" : null;
-        case "coil_heat": return DisplayHeatRequired(metadata.value, recipe);
+        case "ebf_temp": return DisplayHeatRequired(metadata.value, recipe);
         case "nke_range": return DisplayNkeRange(metadata.value);
         default: return `${metadata.key}: ${formatAmount(metadata.value)}`;
     }

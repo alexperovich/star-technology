@@ -20,7 +20,6 @@ namespace Source.Data
         public int amperage;
         public int voltageTier;
         public int circuitConflicts;
-        public int specialValue;
         public RecipeMetadata[] metadata;
     }
     
@@ -30,6 +29,7 @@ namespace Source.Data
         public int slot;
         public int amount;
         public T goods;
+        public int probability;
     }
     
     [Serializable]
@@ -38,6 +38,6 @@ namespace Source.Data
         public int slot;
         public int amount;
         public T goods;
-        public float probability;
+        public int probability;
     }
 }

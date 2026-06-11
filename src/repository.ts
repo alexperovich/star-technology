@@ -1,10 +1,11 @@
 import { SearchQuery } from "./searchQuery.js";
+import { SetCoilTiers, CoilTier, SetRotorHolders, RotorHolderTier, SetTurbineRotors, TurbineRotor, SetReflectorTiers, ReflectorTier, SetParallelHatchTiers, SetAbsoluteParallelHatchTiers, ParallelHatchTier, stripFormatting } from "./utils.js";
 
 const charCodeItem = "i".charCodeAt(0);
 const charCodeFluid = "f".charCodeAt(0);
 const charCodeRecipe = "r".charCodeAt(0);
 
-const DATA_VERSION = 5;
+const DATA_VERSION = 6;
 export class Repository
 {
     static current:Repository;
@@ -51,7 +52,173 @@ export class Repository
     static load(data: ArrayBuffer): Repository {
         const repository = new Repository(data);
         Repository.current = repository;
+        repository.LoadCoilTiers();
+        repository.LoadRotorHolders();
+        repository.LoadTurbineRotors();
+        repository.LoadReflectorTiers();
+        repository.LoadParallelHatches();
         return repository;
+    }
+
+    private LoadCoilTiers() {
+        const coils:(CoilTier & {tier:number})[] = [];
+        for (let i = 0; i < this.items.length; i++) {
+            const item = this.GetObject(this.items[i], Item);
+            let coilTier = -1;
+            let baseHeatCapacity = 0;
+            let smelterLevel = 0;
+            let energyDiscount = 0;
+            let hasHeatCapacity = false;
+            for (const metadata of item.metadata) {
+                switch (metadata.key) {
+                    case "coilTier": coilTier = metadata.value; break;
+                    case "baseHeatCapacity": baseHeatCapacity = metadata.value; hasHeatCapacity = true; break;
+                    case "smelterLevel": smelterLevel = metadata.value; break;
+                    case "energyDiscount": energyDiscount = metadata.value; break;
+                }
+            }
+            if (coilTier < 0 || !hasHeatCapacity)
+                continue;
+            let name = item.name;
+            const suffix = " Coil Block";
+            if (name.endsWith(suffix))
+                name = name.slice(0, -suffix.length);
+            coils.push({ tier: coilTier, name, baseHeatCapacity, smelterLevel, energyDiscount });
+        }
+        if (coils.length === 0)
+            return;
+        coils.sort((a, b) => a.tier - b.tier);
+        SetCoilTiers(coils.map(c => ({ name: c.name, baseHeatCapacity: c.baseHeatCapacity, smelterLevel: c.smelterLevel, energyDiscount: c.energyDiscount })));
+    }
+
+    private LoadRotorHolders() {
+        const holders:RotorHolderTier[] = [];
+        for (let i = 0; i < this.items.length; i++) {
+            const item = this.GetObject(this.items[i], Item);
+            let tier = -1;
+            let maxSpeed = 0;
+            for (const metadata of item.metadata) {
+                switch (metadata.key) {
+                    case "rotorHolderTier": tier = metadata.value; break;
+                    case "maxRotorHolderSpeed": maxSpeed = metadata.value; break;
+                }
+            }
+            if (tier < 0)
+                continue;
+            let name = stripFormatting(item.name);
+            const suffix = " Rotor Holder";
+            if (name.endsWith(suffix))
+                name = name.slice(0, -suffix.length);
+            if (holders.some(h => h.tier === tier))
+                continue;
+            holders.push({ tier, name, maxSpeed });
+        }
+        if (holders.length === 0)
+            return;
+        holders.sort((a, b) => a.tier - b.tier);
+        SetRotorHolders(holders);
+    }
+
+    private LoadTurbineRotors() {
+        const rotors:TurbineRotor[] = [];
+        const seen = new Set<string>();
+        for (let i = 0; i < this.items.length; i++) {
+            const item = this.GetObject(this.items[i], Item);
+            let efficiency = -1;
+            let power = -1;
+            for (const metadata of item.metadata) {
+                switch (metadata.key) {
+                    case "turbineEfficiency": efficiency = metadata.value; break;
+                    case "turbinePower": power = metadata.value; break;
+                }
+            }
+            if (power < 0 || efficiency < 0)
+                continue;
+            let name = stripFormatting(item.name);
+            const suffix = " Turbine Rotor";
+            // Skip the generic, material-less "Turbine Rotor" variant (it does not
+            // carry a material prefix and so won't end with " Turbine Rotor").
+            if (!name.endsWith(suffix))
+                continue;
+            const material = name.slice(0, -suffix.length);
+            if (material.length === 0 || seen.has(material))
+                continue;
+            seen.add(material);
+            rotors.push({ name: material, efficiency, power });
+        }
+        if (rotors.length === 0)
+            return;
+        rotors.sort((a, b) => a.power - b.power || a.name.localeCompare(b.name));
+        SetTurbineRotors(rotors);
+    }
+
+    private LoadReflectorTiers() {
+        const tiers:ReflectorTier[] = [];
+        const seen = new Set<number>();
+        for (let i = 0; i < this.items.length; i++) {
+            const item = this.GetObject(this.items[i], Item);
+            if (!item.internalName.endsWith("_reflector_casing"))
+                continue;
+            // The tier is encoded in the tooltip ("Tier T<n>"), not in metadata.
+            const tooltip = stripFormatting(item.tooltip ?? "");
+            const match = tooltip.match(/Tier\s+T(\d+)/);
+            if (!match)
+                continue;
+            const tier = parseInt(match[1], 10);
+            if (seen.has(tier))
+                continue;
+            seen.add(tier);
+            let name = stripFormatting(item.name);
+            const suffix = " Neutron Reflector Casing";
+            if (name.endsWith(suffix))
+                name = name.slice(0, -suffix.length);
+            tiers.push({ tier, name });
+        }
+        if (tiers.length === 0)
+            return;
+        tiers.sort((a, b) => a.tier - b.tier);
+        SetReflectorTiers(tiers);
+    }
+
+    private LoadParallelHatches() {
+        // Parallel Control Hatches carry a `maxParallel` metadata value; Absolute
+        // Parallel Mastery Hatches carry `absoluteParallels`. Both map to a list of
+        // selectable parallel counts.
+        const parallel:ParallelHatchTier[] = [];
+        const absolute:ParallelHatchTier[] = [];
+        const seenParallel = new Set<number>();
+        const seenAbsolute = new Set<number>();
+        for (let i = 0; i < this.items.length; i++) {
+            const item = this.GetObject(this.items[i], Item);
+            let maxParallel = -1;
+            let absoluteParallels = -1;
+            for (const metadata of item.metadata) {
+                switch (metadata.key) {
+                    case "maxParallel": maxParallel = metadata.value; break;
+                    case "absoluteParallels": absoluteParallels = metadata.value; break;
+                }
+            }
+            if (maxParallel > 0 && !seenParallel.has(maxParallel)) {
+                seenParallel.add(maxParallel);
+                let name = stripFormatting(item.name);
+                const suffix = " Parallel Control Hatch";
+                if (name.endsWith(suffix))
+                    name = name.slice(0, -suffix.length);
+                parallel.push({ name, parallels: maxParallel });
+            }
+            if (absoluteParallels > 0 && !seenAbsolute.has(absoluteParallels)) {
+                seenAbsolute.add(absoluteParallels);
+                let name = stripFormatting(item.name);
+                const suffix = " Absolute Parallel Mastery Hatch";
+                if (name.endsWith(suffix))
+                    name = name.slice(0, -suffix.length);
+                absolute.push({ name, parallels: absoluteParallels });
+            }
+        }
+        parallel.sort((a, b) => a.parallels - b.parallels);
+        absolute.sort((a, b) => a.parallels - b.parallels);
+        SetParallelHatchTiers(parallel);
+        SetAbsoluteParallelHatchTiers(absolute);
     }
 
     private FillRecipesRemap(remap:Int32Array) {
@@ -122,6 +289,16 @@ export class Repository
         return (this.objects[pointer] as T) ?? (this.objects[pointer] = this.ReadObject<T>(pointer, prototype))
     }
 
+    // Reads a Goods object choosing its concrete type (Item or Fluid) from the stored id prefix.
+    GetGoods(pointer:number):Goods
+    {
+        if (pointer === -1)
+            return null as unknown as Goods;
+        var id = this.GetString(this.elements[pointer + 4]);
+        var prototype:IMemMappedObjectPrototype<Goods> = id.charCodeAt(0) == charCodeFluid ? Fluid : Item;
+        return this.GetObject(pointer, prototype);
+    }
+
     private ReadObject<T extends MemMappedObject>(pointer:number, prototype:IMemMappedObjectPrototype<T>):T
     {
         return new prototype(this, pointer);
@@ -187,12 +364,32 @@ class MemMappedObject
         return this.repository.GetSlice(this.repository.elements[offset + this.objectOffset]);
     }
 
+    protected GetStringArray(offset:number):string[]
+    {
+        let slice = this.GetSlice(offset);
+        let result:string[] = new Array(slice.length);
+        for (var i = 0; i < slice.length; i++) {
+            result[i] = this.repository.GetString(slice[i]);
+        }
+        return result;
+    }
+
     protected GetArray<T extends MemMappedObject>(offset:number, prototype:IMemMappedObjectPrototype<T>)
     {
         let slice = this.GetSlice(offset);
         let result:T[] = new Array(slice.length);
         for (var i = 0; i < slice.length; i++) {
             result[i] = this.repository.GetObject(slice[i], prototype);
+        }
+        return result;
+    }
+
+    protected GetGoodsArray(offset:number):Goods[]
+    {
+        let slice = this.GetSlice(offset);
+        let result:Goods[] = new Array(slice.length);
+        for (var i = 0; i < slice.length; i++) {
+            result[i] = this.repository.GetGoods(slice[i]);
         }
         return result;
     }
@@ -239,7 +436,18 @@ export class Item extends Goods
     get stackSize():number {return this.GetInt(15);}
     get damage():number {return this.GetInt(16);}
     get container():FluidContainer | null {return this.GetObject(17, FluidContainer);}
-    
+    get recipeModifiers():string[] {return this.GetStringArray(18);}
+    get metadata():ItemMetadata[] {return this.GetArray(19, ItemMetadata);}
+
+    MetadataByKey(key:string, defaultValue:number = 0):number {
+        for (const metadata of this.metadata) {
+            if (metadata.key === key) {
+                return metadata.value;
+            }
+        }
+        return defaultValue;
+    }
+
     get tooltipDebugInfo(): string {
         var baseInfo = `${this.mod}:${this.internalName}:${this.damage}`;
         var nbt = this.nbt;
@@ -267,11 +475,11 @@ export class Fluid extends Goods
 
 export class OreDict extends RecipeObject
 {
-    items:Item[];
+    items:Goods[];
 
     constructor(repository:Repository, offset:number) {
         super(repository, offset);
-        this.items = this.GetArray(5, Item);
+        this.items = this.GetGoodsArray(5);
     }
 
     MatchSearchText(query: SearchQuery): boolean
@@ -315,7 +523,6 @@ class GtRecipe extends MemMappedObject
     get voltageTier():number {return this.GetInt(3);}
     get metadata():GtRecipeMetadata[] {return this.GetArray(4, GtRecipeMetadata);}
     get circuitConflicts():number {return this.GetInt(5);}
-    get specialValue():number {return this.GetInt(6);}
 
     MetadataByKey(key:string, defaultValue:number = 0):number {
         for (const metadata of this.metadata) {
@@ -333,11 +540,18 @@ export class GtRecipeMetadata extends MemMappedObject
     get value():number {return this.GetDouble(1);}
 }
 
+export class ItemMetadata extends MemMappedObject
+{
+    get key():string {return this.GetString(0);}
+    get value():number {return this.GetDouble(1);}
+}
+
 export enum RecipeIoType
 {
     ItemInput = 0,
     OreDictInput,
     FluidInput,
+    FluidOreDictInput,
     ItemOutput,
     FluidOutput
 }
@@ -352,7 +566,7 @@ export type RecipeInOut =
     probability: number;
 }
 
-const RecipeIoTypePrototypes:IMemMappedObjectPrototype<RecipeObject>[] = [Item, OreDict, Fluid, Item, Fluid];
+const RecipeIoTypePrototypes:IMemMappedObjectPrototype<RecipeObject>[] = [Item, OreDict, Fluid, OreDict, Item, Fluid];
 
 export class Recipe extends SearchableObject
 {
@@ -377,7 +591,7 @@ export class Recipe extends SearchableObject
                 goods:this.repository.GetObject<RecipeObject>(ptr, RecipeIoTypePrototypes[type]),
                 slot: slice[index++],
                 amount: slice[index++],
-                probability: slice[index++] / 100,
+                probability: slice[index++] / 10000,
             }
         }
         return result;

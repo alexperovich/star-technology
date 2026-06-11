@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -11,39 +10,27 @@ namespace Source
 {
     public class AtlasBuilder : IDisposable
     {
-        private readonly ZipArchive archive;
+        private readonly string baseDir;
         private readonly string savePath;
         
-        public AtlasBuilder(string imagesArchivePath, string savePath)
+        public AtlasBuilder(string baseDir, string savePath)
         {
-            archive = new ZipArchive(File.OpenRead(imagesArchivePath), ZipArchiveMode.Read);
+            this.baseDir = baseDir;
             this.savePath = savePath;
         }
 
-        private Image<Rgba32> LoadImageFromArchive(string path)
+        private Image<Rgba32> LoadImage(string path)
         {
-            var entry = archive.GetEntry(path);
-            if (entry == null)
+            if (string.IsNullOrEmpty(path))
+                return null;
+            var fullPath = Path.Combine(baseDir, path);
+            if (!File.Exists(fullPath))
             {
-                path = path.Substring(0, path.Length - 4);
-                foreach (var iEntry in archive.Entries)
-                {
-                    if (iEntry.FullName.StartsWith(path, StringComparison.Ordinal))
-                    {
-                        entry = iEntry;
-                        break;
-                    }
-                }
-            }
-
-            if (entry == null)
-            {
-                Console.WriteLine("Unable to find archive entry for " + path);
+                Console.WriteLine("Unable to find image file " + fullPath);
                 return null;
             }
 
-            using var stream = entry.Open();
-            return Image.Load<Rgba32>(stream);
+            return Image.Load<Rgba32>(fullPath);
         }
         
         public string BuildAtlas(List<string> iconsPaths)
@@ -72,7 +59,7 @@ namespace Source
                     Console.WriteLine($"Processing icon {i + 1} of {iconsPaths.Count}...");
                 }
                 
-                var image = LoadImageFromArchive(path);
+                var image = LoadImage(path);
                 if (image == null) continue;
                 
                 using (image)
@@ -107,7 +94,6 @@ namespace Source
 
         public void Dispose()
         {
-            archive.Dispose();
         }
     }
 }

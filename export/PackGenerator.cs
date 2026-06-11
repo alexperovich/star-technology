@@ -7,14 +7,10 @@ namespace Source
     {
         public static Repository Generate(string sourcePath, string targetPath, bool skipIcons = false, string previousDataBin = null)
         {
-            var dbParser = new DatabaseParser();
-            dbParser.Parse(Path.Combine(sourcePath, "nesql-db.script"));
-
             var iconList = new List<string>();
-            var repository = PackConverter.Convert(dbParser, iconList);
+            var repository = ExportDataConverter.Convert(sourcePath, iconList);
             
             PackPreProcessor.PreProcessPack(repository);
-            HardcodeFixes.Fix(repository);
             FontCharactersFixer.FixFontCharacters(repository);
             RecipeConflictsCalculator.CalculateRecipeConflicts(repository);
             
@@ -30,7 +26,7 @@ namespace Source
             
             if (!skipIcons)
             {
-                using var builder = new AtlasBuilder(Path.Combine(sourcePath, "image.zip"), Path.Combine(targetPath, "atlas.webp"));
+                using var builder = new AtlasBuilder(sourcePath, Path.Combine(targetPath, "atlas.webp"));
                 builder.BuildAtlas(iconList);
             }
             

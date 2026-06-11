@@ -1,0 +1,166 @@
+{
+  "name": "Parallel Multiblocks",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:start:abyssal_akreyriadix_stabiliser/true_rimula_foundation",
+        "voltageTier": 12,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:abyssal_akreyriadix_stabiliser:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:abyssal_harvester/high_saturation_voidic_excression",
+        "voltageTier": 12,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:abyssal_harvester:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:aqueous_void_excavation/mining",
+        "voltageTier": 5,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:void_excavator:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:arc_furnace/arc_copper_block",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_arc_smelter:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:assembler/duralumin_casing",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:byteforce_unified_incomparable_logistics_depot:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:autoclave/fire_infused_shard_shard",
+        "voltageTier": 6,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_autoclave:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:bacteria_synthesizer/polyvinyl_butyral_synthesis",
+        "voltageTier": 7,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:bacteria_synthesizer:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:/bacterial_breeding_vat/bacteria_fermentibacter_solvatis",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:bacterial_breeding_vat:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:/bacterial_hydrocarbon_harvester/bacteria_fermentibacter_solvatis_harvest",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:bacterial_hydrocarbon_harvester:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:bender/bend_iridium_ingot_to_foil",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_material_press:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:brewery/biomass_from_glow_berries",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_brewer:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:bulk_ore_processing_array/titanite",
+        "voltageTier": 6,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:bulk_ore_processing_array:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:canner/mega_crafting_monitor",
+        "voltageTier": 3,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_extractor:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:centrifuge/decomposition_centrifuging__bronze",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:superior_particulate_isolation_nexus:0",
+        "choices": {
+          "parallels": 4
+        }
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:chemical_bath/studs_white",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_chemical_bath:0",
+        "choices": {
+          "parallels": 4
+        }
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

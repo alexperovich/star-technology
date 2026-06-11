@@ -5,7 +5,7 @@ import { voltageTier, GtVoltageTier, formatAmount } from "./utils.js";
 import { ShowTooltip } from "./tooltip.js";
 import { IconBox } from "./itemIcon.js";
 import { ShowDropdown, HideDropdown } from "./dropdown.js";
-import { machines, notImplementedMachine, singleBlockMachine, GetSingleBlockMachine, GetParameter } from "./machines.js";
+import { notImplementedMachine, singleBlockMachine, GetSingleBlockMachine, GetParameter, BuildMachineFromCrafter } from "./machines.js";
 
 const linkAlgorithmNames: { [key in LinkAlgorithm]: string } = {
     [LinkAlgorithm.Match]: "",
@@ -97,7 +97,7 @@ export class RecipeList {
                 let recipeType = recipe.recipeType;
 
                 let tryAddCrafter = (item:Item) => {
-                    const crafter = machines[item.name];
+                    const crafter = BuildMachineFromCrafter(item, recipeType);
                     const excluded = (crafter && crafter.excludesRecipe) ? crafter.excludesRecipe(recipe) : false;
                     if (!excluded) {
                         options.push(item);
@@ -647,12 +647,14 @@ export class RecipeList {
         // Render machine choices if they exist
         if (machineInfo.choices) {
             const choicesHtml = Object.entries(machineInfo.choices).map(([key, choice]) => {
-                const currentValue = recipeModel.choices[key] ?? choice.min ?? 0;
+                const minIndex = Math.max(choice.min ?? 0, choice.minIndex ? choice.minIndex(recipeModel) : 0);
+                const currentValue = recipeModel.choices[key] ?? minIndex;
                 let inputHtml = '';
                 
                 if (choice.choices) {
-                    // Render as dropdown
+                    // Render as dropdown, hiding options below the minimum valid index.
                     const options = choice.choices.map((option, index) => 
+                        index < minIndex ? '' :
                         `<option value="${index}" ${index === currentValue ? 'selected' : ''}>${option}</option>`
                     ).join('');
                     inputHtml = `
@@ -667,7 +669,7 @@ export class RecipeList {
                             data-action="update_machine_choice"
                             data-choice="${key}"
                             value="${currentValue}"
-                            min="${choice.min ?? 0}"
+                            min="${minIndex}"
                             max="${choice.max ?? ''}"
                         >
                     `;

@@ -1,0 +1,44 @@
+{
+  "name": "Single Block Machines",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:air_scrubber/carbon_monoxide_poisoning",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:essence_burning/emerald_essence_burning_0_cryptand",
+        "voltageTier": 7,
+        "fixedCrafterCount": 1,
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:greenhouse_growing/cerium_essence_growing",
+        "voltageTier": 5,
+        "fixedCrafterCount": 1,
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:scanner/1_x_gtceu_zpm_input_bus",
+        "voltageTier": 6,
+        "fixedCrafterCount": 1,
+        "choices": {}
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

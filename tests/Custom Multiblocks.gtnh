@@ -1,0 +1,136 @@
+{
+  "name": "Custom Multiblocks",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:alloy_smelter/annealed_copper_ingot_and_nickel_dust_into_cupronickel",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:hp_steam_alloy_smelter:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:barrel_composting/melon_slice_composting",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:ulv_barrel:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:stone_barrel/blackstone",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:ulv_stone_barrel:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:barrel/bubble_coral_block",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:ulv_barrel:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:combustion_generator/biodiesel",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:extreme_combustion_engine:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:composting/poppy",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:ulv_advanced_composter:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:compressor/compress_magnalium_nugget_to_ingot",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:hp_steam_compressor:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:extractor/rubber_fluid_from_thermal",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:lp_steam_extractor:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:fermenting/sweetcorn_beer",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:ulv_casket:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:gas_turbine/methane",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:gas_large_turbine:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:large_boiler/createdieselgenerators_wood_chip",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:titanium_large_boiler:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:plasma_generator/helium_from_helium_plasma",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:plasma_large_turbine:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:rock_breaker/deepslate",
+        "voltageTier": 5,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:hp_steam_rock_crusher:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:modular_rocket_module/sorbitol_hypergolic_fuel",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:uev_combustion_module:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:steam_boiler/create_cardboard_sword",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:hp_steam_solar_boiler:0",
+        "choices": {}
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

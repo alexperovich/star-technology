@@ -11,8 +11,6 @@ namespace Source
         {
             Console.WriteLine("Adding fluid tooltips...");
             ProcessFluidTooltips(repository);
-            Console.WriteLine("Processing aspects...");
-            ProcessAspects(repository);
             Console.WriteLine("Processing tooltips...");
             ProcessToolTips(repository.items);
             ProcessToolTips(repository.fluids);
@@ -68,18 +66,11 @@ namespace Source
 
         private static void CalculateMachines(Repository repository)
         {
-            var categoryMachines = new Dictionary<string, (RecipeType, List<Item>)>();
-            foreach (var recipeType in repository.recipeTypes)
+            foreach (var type in repository.recipeTypes)
             {
-                categoryMachines[recipeType.name] = (recipeType, new List<Item>());
-            }
-
-            foreach (var (_, (type, item)) in categoryMachines)
-            {
-                Item fallbackCrafter = null;
+                var item = new List<Item>();
                 foreach (var crafter in type.crafters)
                 {
-                    fallbackCrafter = crafter;
                     if (!item.Contains(crafter))
                     {
                         if (!crafter.tooltip.Contains("DEPRECATED"))
@@ -102,32 +93,9 @@ namespace Source
                 if (maxTier > -1)
                     type.singleblocks.AddRange(sb.Take(maxTier+1));
                 type.multiblocks.AddRange(mb);
-                type.defaultCrafter = type.singleblocks.Count > 0 ? type.singleblocks.First(x => x != null) : type.multiblocks.FirstOrDefault(fallbackCrafter);
-            }
-        }
-
-        private static void ProcessAspects(Repository repository)
-        {
-            var aspects = repository.items.Where(x => x.mod == "thaumcraftneiplugin" && x.name.StartsWith("Aspect: ")).ToDictionary(x => x.name.Substring("Aspect: ".Length));
-            var crafter = repository.items.First(x => x.name == "Alchemical Furnace");
-            var recipeType = new RecipeType
-            {
-                shapeless = true, itemInputs = new RecipeDimensions(1, 1), itemOutputs = new RecipeDimensions(5, 2), category = "thaumcraft", name = "Item aspects",
-                crafters = new List<Item> {crafter}, defaultCrafter = crafter, 
-            };
-            repository.recipeTypes.Add(recipeType);
-            
-            foreach (var item in repository.items)
-            {
-                if (item.aspects.Count == 0)
-                    continue;
-                var recipe = new Recipe
-                {
-                    id = "r:asp:" + item.id, itemInputs = new RecipeInput<Item>[] { new() { goods = item, amount = 1, slot = 0 } },
-                    itemOutputs = item.aspects.Select((x, id) => new RecipeProduct<Item> { goods = aspects[x.name], probability = 1, slot = id, amount = x.amount}).ToArray(),
-                    recipeType = recipeType, fluidInputs = Array.Empty<RecipeInput<Fluid>>(), fluidOutputs = Array.Empty<RecipeProduct<Fluid>>(), oreDictInputs = Array.Empty<RecipeInput<OreDict>>()
-                };
-                repository.recipes.Add(recipe);
+                type.defaultCrafter = type.singleblocks.FirstOrDefault(x => x != null)
+                    ?? type.multiblocks.FirstOrDefault()
+                    ?? type.crafters.FirstOrDefault();
             }
         }
 

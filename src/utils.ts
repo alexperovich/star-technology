@@ -50,8 +50,8 @@ export var voltageTier:GtVoltageTier[] = [
     {name: "UHV", voltage: 2097152},
     {name: "UEV", voltage: 8388608},
     {name: "UIV", voltage: 33554432},
-    {name: "UMV", voltage: 134217728},
-    {name: "UXV", voltage: 536870912},
+    {name: "UXV", voltage: 134217728},
+    {name: "OpV", voltage: 536870912},
     {name: "MAX", voltage: 2147483640},
     {name: "MAX+1", voltage: 2147483640*Math.pow(4, 1)},
     {name: "MAX+2", voltage: 2147483640*Math.pow(4, 2)},
@@ -77,11 +77,151 @@ export const TIER_UV = 7;
 export const TIER_UHV = 8;
 export const TIER_UEV = 9;
 export const TIER_UIV = 10;
-export const TIER_UMV = 11;
-export const TIER_UXV = 12;
+export const TIER_UXV = 11;
+export const TIER_OpV = 12;
 export const TIER_MAX = 13;
 
+// Fallback names; overwritten at load time from the exported coil items (see Repository.LoadCoilTiers).
 export var CoilTierNames = ["Cupronickel", "Kanthal", "Nichrome", "TPV", "HSS-G", "HSS-S", "Naquadah", "Naquadah Alloy", "Trinium", "Electrum Flux", "Awakened Draconium", "Infinity", "Hypogen", "Eternal"];
+
+export type CoilTier = {
+    name: string;
+    baseHeatCapacity: number;
+    smelterLevel: number;
+    energyDiscount: number;
+};
+
+// Fallback coil data; overwritten at load time from the exported coil items (see Repository.LoadCoilTiers).
+export var CoilTiers: CoilTier[] = CoilTierNames.map((name, index) => ({
+    name,
+    baseHeatCapacity: 1801 + index * 900,
+    smelterLevel: index + 1,
+    energyDiscount: index + 1,
+}));
+
+export function SetCoilTierNames(names:string[]) {
+    if (names.length > 0)
+        CoilTierNames = names;
+}
+
+export function SetCoilTiers(tiers:CoilTier[]) {
+    if (tiers.length > 0) {
+        CoilTiers = tiers;
+        CoilTierNames = tiers.map(t => t.name);
+    }
+}
+
+// Strips formatting from an exported display name: Minecraft color codes
+// (§ followed by one character) and the HTML <span class="fmt-..."> wrappers the
+// exporter emits for coloured names.
+export function stripFormatting(text:string):string {
+    return text.replace(/<[^>]*>/g, "").replace(/\u00a7./g, "").trim();
+}
+
+// --- Turbine rotor holders & rotors ---
+// Populated at load time from the exported items (see Repository.LoadRotorHolders /
+// LoadTurbineRotors). The rotor holder's tier and the rotor material's efficiency/power
+// drive the production of the rotor-based turbine generators.
+export type RotorHolderTier = {
+    name: string;
+    tier: number;
+    maxSpeed: number;
+};
+
+export type TurbineRotor = {
+    name: string;
+    efficiency: number;
+    power: number;
+};
+
+// Fallback data; overwritten at load time from the exported items.
+export var RotorHolderTiers: RotorHolderTier[] = [
+    { name: "HV", tier: 3, maxSpeed: 5000 },
+    { name: "EV", tier: 4, maxSpeed: 6000 },
+    { name: "IV", tier: 5, maxSpeed: 7000 },
+    { name: "LuV", tier: 6, maxSpeed: 8000 },
+    { name: "ZPM", tier: 7, maxSpeed: 9000 },
+    { name: "UV", tier: 8, maxSpeed: 10000 },
+    { name: "UHV", tier: 9, maxSpeed: 11000 },
+    { name: "UEV", tier: 10, maxSpeed: 12000 },
+    { name: "UIV", tier: 11, maxSpeed: 13000 },
+];
+
+export var TurbineRotors: TurbineRotor[] = [
+    { name: "Iron", efficiency: 115, power: 115 },
+];
+
+export function SetRotorHolders(holders:RotorHolderTier[]) {
+    if (holders.length > 0)
+        RotorHolderTiers = holders;
+}
+
+export function SetTurbineRotors(rotors:TurbineRotor[]) {
+    if (rotors.length > 0)
+        TurbineRotors = rotors;
+}
+
+// --- Neutron reflector casings ---
+// Populated at load time from the exported *_reflector_casing items (see
+// Repository.LoadReflectorTiers). The tier is parsed from the item tooltip
+// ("Tier T<n>"), not from metadata.
+export type ReflectorTier = {
+    name: string;
+    tier: number;
+};
+
+// Fallback data; overwritten at load time from the exported items.
+export var ReflectorTiers: ReflectorTier[] = [
+    { name: "Basic", tier: 1 },
+    { name: "Advanced", tier: 2 },
+    { name: "Complex", tier: 3 },
+    { name: "Reinforced", tier: 4 },
+    { name: "Borealic", tier: 5 },
+    { name: "Dragonic", tier: 6 },
+    { name: "Prismalic", tier: 7 },
+];
+
+export function SetReflectorTiers(tiers:ReflectorTier[]) {
+    if (tiers.length > 0)
+        ReflectorTiers = tiers;
+}
+
+// --- Parallel hatches ---
+// Populated at load time from the exported parallel-hatch items (see
+// Repository.LoadParallelHatches). Parallel Control Hatches carry a `maxParallel`
+// metadata value; Absolute Parallel Mastery Hatches carry `absoluteParallels`
+// (their parallels run without extra energy cost).
+export type ParallelHatchTier = {
+    name: string;
+    parallels: number;
+};
+
+// Fallback data; overwritten at load time from the exported items.
+export var ParallelHatchTiers: ParallelHatchTier[] = [
+    { name: "Elite", parallels: 4 },
+    { name: "Master", parallels: 16 },
+    { name: "Ultimate", parallels: 64 },
+    { name: "Super", parallels: 256 },
+    { name: "Epic", parallels: 1024 },
+    { name: "Mega", parallels: 4096 },
+    { name: "Hyper", parallels: 16384 },
+];
+
+export var AbsoluteParallelHatchTiers: ParallelHatchTier[] = [
+    { name: "Epic", parallels: 4 },
+    { name: "Mega", parallels: 8 },
+    { name: "Hyper", parallels: 16 },
+];
+
+export function SetParallelHatchTiers(tiers:ParallelHatchTier[]) {
+    if (tiers.length > 0)
+        ParallelHatchTiers = tiers;
+}
+
+export function SetAbsoluteParallelHatchTiers(tiers:ParallelHatchTier[]) {
+    if (tiers.length > 0)
+        AbsoluteParallelHatchTiers = tiers;
+}
 
 
 export function formatAmount(amount: number): string {

@@ -1,0 +1,136 @@
+{
+  "name": "Overclock Multiblocks",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:start:hellforge/mythrotight_carbide_steel",
+        "voltageTier": 12,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:fornaxs_infernal_rotary_engine:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:component_part_synthesis_forge/uhv_super_magnetic_core",
+        "voltageTier": 9,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:multithreaded_component_synthesis_forge:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:component_synthesis_forge/uev_electric_pump",
+        "voltageTier": 10,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:multithreaded_component_synthesis_forge:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:draco_infusion/chalyblux_dust",
+        "voltageTier": 11,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:draco_infusion:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:assembly_line/cryostate_quantum_chiller",
+        "voltageTier": 11,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:compact_assembly_line:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:/bacterial_runic_mutator/bacteria_fermentibacter_solvatis_affinity",
+        "voltageTier": 9,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:bacterial_runic_mutator:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:large_barrel/green_concrete",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_barrel:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:catto_shrine//mars",
+        "voltageTier": 9,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:catto_shrine:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:coke_oven/sugar_coke",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:coke_oven:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:component_nexus/luv_conveyor_module",
+        "voltageTier": 6,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:component_nexus:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:component_part_assembly/csg_chevron",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:component_part_assembly:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:crop_greenhouse/sea_pickle_harvest_compost",
+        "voltageTier": 2,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:greenhouse:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:dimensional_destabiliser/naquadah_mining",
+        "voltageTier": 6,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:dimensional_destabiliser:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:dimensional_finder/abydos_coordinate_crystal",
+        "voltageTier": 9,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:dimensional_finder:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:distillation_tower/distill_acetone",
+        "voltageTier": 5,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:distillation_tower:0",
+        "choices": {}
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}
