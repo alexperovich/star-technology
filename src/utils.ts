@@ -223,6 +223,29 @@ export function SetAbsoluteParallelHatchTiers(tiers:ParallelHatchTier[]) {
         AbsoluteParallelHatchTiers = tiers;
 }
 
+// --- Hell Forge heating fluids ---
+// The Hell Forge (and Fornax's Infernal Rotary Engine) consume a heating fluid
+// to heat their crucible. Each fluid can heat the crucible to a maximum
+// temperature (in MK). For every 450MK the fluid's temperature exceeds the
+// recipe's required temperature (the recipe's ebf_temp, also in MK), the recipe
+// gains a multiplicative x2 of free (absolute) parallels.
+export type HeatingFluid = {
+    id: string;
+    name: string;
+    temperature: number;    // maximum crucible temperature in MK
+};
+
+export var HeatingFluids: HeatingFluid[] = [
+    { id: "start_core:flamewake_solvent", name: "Flamewake Solvent", temperature: 900 },
+    { id: "start_core:cinderbrew_solvent", name: "Cinderbrew Solvent", temperature: 1350 },
+    { id: "start_core:emberheart_nectar", name: "Emberheart Nectar", temperature: 1800 },
+    { id: "start_core:corefire_nectar", name: "Corefire Nectar", temperature: 2250 },
+    { id: "start_core:igniferous_elixir", name: "Igniferous Elixir", temperature: 2700 },
+    { id: "start_core:infernum_elixir", name: "Infernum Elixir", temperature: 3150 },
+    { id: "start_core:blazing_phlogiston", name: "Blazing Phlogiston", temperature: 3600 },
+    { id: "start_core:hellfire_essence", name: "Hellfire Essence", temperature: 4050 },
+];
+
 
 export function formatAmount(amount: number): string {
     if (amount < 0.001) {

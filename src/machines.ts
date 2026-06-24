@@ -1,7 +1,7 @@
 import { RecipeModel, OverclockResult } from "./page.js";
 import { Fluid, Goods, Item, Recipe, RecipeInOut, RecipeIoType, RecipeType, Repository } from "./repository.js";
 import { TIER_LV, TIER_MV, TIER_LUV, TIER_ZPM, TIER_UV, TIER_UHV, TIER_UEV, TIER_UIV, TIER_UXV, CoilTierNames, CoilTiers } from "./utils.js";
-import { voltageTier, getFusionTierByStartupCost, formatTicksAsTime, RotorHolderTiers, TurbineRotors, ReflectorTiers, ParallelHatchTier, ParallelHatchTiers, AbsoluteParallelHatchTiers } from "./utils.js";
+import { voltageTier, getFusionTierByStartupCost, formatTicksAsTime, RotorHolderTiers, TurbineRotors, ReflectorTiers, ParallelHatchTier, ParallelHatchTiers, AbsoluteParallelHatchTiers, HeatingFluids } from "./utils.js";
 
 export type MachineCoefficient<T> = Exclude<T, Function> | ((recipe:RecipeModel, choices:{[key:string]:number}) => T);
 
@@ -217,6 +217,45 @@ function parallelHatchCount(tiers:ParallelHatchTier[], index:number):number {
     return Math.max(1, tier?.parallels ?? 1);
 }
 
+// --- Hell Forge heating fluids ---
+// The Hell Forge heats its crucible with a heating fluid. The recipe's required
+// temperature (ebf_temp, in MK) determines the minimum usable fluid; every 450MK
+// the fluid's temperature exceeds it multiplies the free (absolute) parallels by 2.
+function makeHeatingFluidChoice():Choice {
+    return {
+        description: "Heating Fluid",
+        choices: HeatingFluids.map((fluid) => `${fluid.name}: ${fluid.temperature}MK`),
+        minIndex: minHeatingFluidIndex,
+    };
+}
+
+function hellforgeRequiredTemp(recipe:RecipeModel):number {
+    return recipe.recipe?.gtRecipe.MetadataByKey("ebf_temp") ?? 0;
+}
+
+// Lowest heating-fluid index whose temperature reaches the recipe's required
+// temperature. Fluids below it cannot heat the crucible enough to run the recipe
+// and are hidden from the dropdown.
+function minHeatingFluidIndex(recipe:RecipeModel):number {
+    const required = hellforgeRequiredTemp(recipe);
+    if (required <= 0)
+        return 0;
+    const index = HeatingFluids.findIndex((fluid) => fluid.temperature >= required);
+    return index < 0 ? Math.max(0, HeatingFluids.length - 1) : index;
+}
+
+// For every full 450MK the selected fluid exceeds the recipe's required
+// temperature, the free parallels multiply by 2 (e.g. +450MK => x2, +1350MK => x8).
+function hellforgeParallels(recipe:RecipeModel, choices:{[key:string]:number}):number {
+    const fluid = HeatingFluids[choices.heatingFluid] ?? HeatingFluids[0];
+    if (!fluid)
+        return 1;
+    const excess = fluid.temperature - hellforgeRequiredTemp(recipe);
+    if (excess < 450)
+        return 1;
+    return Math.pow(2, Math.floor(excess / 450));
+}
+
 function makeCoilChoice():Choice {
     return {
         description: "Coils",
@@ -324,6 +363,25 @@ function addFreeParallelChoice(builder:MachineBuilder) {
     builder.parallelFactors.push((_recipe, choices) => parallelHatchCount(AbsoluteParallelHatchTiers, choices.parallels));
     builder.powerFactors.push((_recipe, choices) => 1 / parallelHatchCount(AbsoluteParallelHatchTiers, choices.parallels));
 }
+
+// Hell Forge heating-fluid modifier. The selected fluid sets the crucible
+// temperature; surplus heat over the recipe's required temperature grants free
+// (absolute) parallels that do not increase EU consumption. Applied by crafter id
+// (the underlying recipe-modifier lambda is shared and its id is unstable).
+function addHellforgeHeatingFluid(builder:MachineBuilder) {
+    builder.choices["heatingFluid"] = makeHeatingFluidChoice();
+    builder.parallelFactors.push((recipe, choices) => hellforgeParallels(recipe, choices));
+    builder.powerFactors.push((recipe, choices) => 1 / hellforgeParallels(recipe, choices));
+    builder.infos.push("Hell Forge: a heating fluid heats the crucible; every 450MK above the recipe's required temperature doubles the free parallels.");
+}
+
+// Crafters whose recipe-modifier lambda is not modelled by id but whose behaviour
+// is known. Keyed by `mod:internalName` (the lambda id is shared and unstable
+// across exports, so it cannot be used as a stable key).
+const crafterModifierRegistry: {[id:string]: ModifierImpl} = {
+    "start_core:hellforge": addHellforgeHeatingFluid,
+    "start_core:fornaxs_infernal_rotary_engine": addHellforgeHeatingFluid,
+};
 
 // Maps each known modifier id to the contribution it makes to a machine.
 const modifierRegistry: {[id:string]: ModifierImpl} = {
@@ -490,6 +548,15 @@ function ComposeMachineFromModifiers(crafter:Item, _recipeType:RecipeType):Machi
         else
             // Unknown / lambda / fusion-style modifier: cannot be modelled exactly.
             hasCustomLogic = true;
+    }
+
+    // Crafters with a known-but-lambda modifier (keyed by id rather than the
+    // unstable lambda modifier id). Applying it replaces the unmodelled lambda,
+    // so the generic approximation note is suppressed.
+    const crafterImpl = crafterModifierRegistry[`${crafter.mod}:${crafter.internalName}`];
+    if (crafterImpl) {
+        crafterImpl(builder, crafter);
+        hasCustomLogic = false;
     }
 
     if (hasCustomLogic)
