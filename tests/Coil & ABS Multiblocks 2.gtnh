@@ -1,0 +1,64 @@
+{
+  "name": "Coil & ABS Multiblocks 2",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:alloy_blast_smelter/ruthenium_trinium_americium_neutronate_gas",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:super_abs:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:alloy_blast_smelter/ruthenium_trinium_americium_neutronate_gas",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:ultimate_abs:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:cracker/hydro_crack_ethane",
+        "voltageTier": 5,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:super_cracker:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:pyrolyse_oven/oil_medium",
+        "voltageTier": 4,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:super_pyrolyse:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:large_chemical_reactor/qbit_cpu_wafer_quantum_eye",
+        "voltageTier": 6,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:incomprehensible_chemical_reactor:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:blasting/smelt_deepslate_monazite_ore_to_ingot",
+        "voltageTier": 3,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:limitless_smelter:0",
+        "choices": {}
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

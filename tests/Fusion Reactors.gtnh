@@ -1,0 +1,32 @@
+{
+  "name": "Fusion Reactors",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:start:reflector_fusion_reactor/tritanium_from_titanium_and_duranium",
+        "voltageTier": 7,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:zpm_fusion_reactor:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:reflector_fusion_reactor/tritanium_from_titanium_and_duranium",
+        "voltageTier": 11,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:uiv_fusion_reactor:0",
+        "choices": {}
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "name": "Overclock Multiblocks 2",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:arc_furnace/arc_copper_block",
+        "voltageTier": 3,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:t_large_arc_furnace:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:essence_enchancing/tertium_ench",
+        "voltageTier": 7,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:essence_enchancer:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:assembler/duralumin_casing",
+        "voltageTier": 3,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_assembler:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:assembly_line/cryostate_quantum_chiller",
+        "voltageTier": 11,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:assembly_line:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:large_rotor_machine//csg_stargate_rod_base",
+        "voltageTier": 9,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_rotor_machine:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:ordered_chemistry//kaleidoscope_agitation_serum",
+        "voltageTier": 12,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:advanced_synthesis_plant:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:ordered_chemistry//kaleidoscope_agitation_serum",
+        "voltageTier": 12,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:true_synthesis_array:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:draco_infusion/chalyblux_dust",
+        "voltageTier": 11,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:primordial_infusion:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:nuclear_fission/mox238_fuel_rod",
+        "voltageTier": 3,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:nuclear_reactor:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:heat_chamber/graphite_nanoparticle_coolant",
+        "voltageTier": 9,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:super_compact_heat_chamber:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:magmatic_drill/nether",
+        "voltageTier": 11,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:magmatic_drilling_module:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:riftic_enhancement/temporic_stargate_rod",
+        "voltageTier": 12,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:riftic_enhancement_module:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:hellforge/mythrotight_carbide_steel",
+        "voltageTier": 12,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:hellforge:0",
+        "choices": {}
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

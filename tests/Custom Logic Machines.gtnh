@@ -1,0 +1,112 @@
+{
+  "name": "Custom Logic Machines",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:start:vacuum_chemical_reaction_chamber/aerogel_ingot",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:vacuum_chemical_reaction_chamber:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:vacuum_chemical_reaction_chamber/aerogel_ingot",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:auroric_vacuum_isolation_reactor:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:vacuum_chemical_reaction_chamber/aerogel_ingot",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:dual_chambered_vacuum_complex:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:forge_hammer/blackstone_crushing",
+        "voltageTier": 0,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:high_pressure_steam_hammer:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:macerator/macerate_melon_slice",
+        "voltageTier": 0,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:steam_grinder:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:smelting/smelt_endstone_diatomite_ore_to_ingot",
+        "voltageTier": 0,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:steam_oven:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:steam_kiln/wrought_iron",
+        "voltageTier": 0,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:steam_kiln:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:plasma_generator/helium_from_helium_plasma",
+        "voltageTier": 9,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:nyinsane_plasma_turbine:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:plasma_generator/helium_from_helium_plasma",
+        "voltageTier": 9,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:supreme_plasma_turbine:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:combustion_generator/biodiesel",
+        "voltageTier": 6,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:luv_combustion_module:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:combustion_generator/biodiesel",
+        "voltageTier": 7,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:zpm_combustion_module:0",
+        "choices": {}
+      },
+      {
+        "type": "recipe",
+        "recipeId": "r:start:modular_rocket_module/sorbitol_hypergolic_fuel",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:uv_combustion_module:0",
+        "choices": {}
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

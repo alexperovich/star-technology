@@ -30,6 +30,15 @@ namespace Source
         // Recipe types to exclude entirely (informational only, not real crafting).
         private static readonly HashSet<string> IgnoredRecipeTypes = new() { "gtceu:multiblock_info" };
 
+        // Vanilla furnace recipe types run in GT machines at a fixed energy cost,
+        // independent of the vanilla recipe. The recipe's own duration is used as the
+        // cook time when present; otherwise these defaults apply. Keyed by fullTypeName.
+        private static readonly Dictionary<string, (int durationTicks, int voltage)> VanillaGtTimings = new()
+        {
+            ["minecraft:smelting"] = (200, 16),     // 10 seconds, 16 EU/t
+            ["minecraft:blasting"] = (100, 16),     // 5 seconds, 16 EU/t
+        };
+
         #region JSON models
 
         private class GoodsEntryJson
@@ -298,6 +307,17 @@ namespace Source
                             durationTicks = rj.duration,
                             amperage = 1,
                             voltageTier = VoltageTiers.GetVoltageTierFromRaw(rj.voltage),
+                            metadata = BuildRecipeMetadata(rj.data, rj.id),
+                        };
+                    }
+                    else if (VanillaGtTimings.TryGetValue(rj.fullTypeName, out var timing))
+                    {
+                        recipe.gtInfo = new GtRecipeInfo
+                        {
+                            voltage = timing.voltage,
+                            durationTicks = rj.duration > 0 ? rj.duration : timing.durationTicks,
+                            amperage = 1,
+                            voltageTier = VoltageTiers.GetVoltageTierFromRaw(timing.voltage),
                             metadata = BuildRecipeMetadata(rj.data, rj.id),
                         };
                     }

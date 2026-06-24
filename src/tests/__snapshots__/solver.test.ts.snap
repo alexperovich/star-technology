@@ -1,5 +1,58 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`Solver Processing Coil & ABS Multiblocks 2.gtnh should process without errors 1`] = `
+[
+  {
+    "crafterCount": 1.0000000002124998,
+    "id": "r:gtceu:alloy_blast_smelter/ruthenium_trinium_americium_neutronate_gas",
+    "overclockFactor": 10,
+    "overclockName": "OC x2",
+    "powerFactor": 1.52,
+    "recipesPerMinute": 1.70575693,
+  },
+  {
+    "crafterCount": 1.0000000045887323,
+    "id": "r:gtceu:alloy_blast_smelter/ruthenium_trinium_americium_neutronate_gas",
+    "overclockFactor": 3.4134615384615388,
+    "overclockName": "",
+    "powerFactor": 4.9399999999999995,
+    "recipesPerMinute": 0.58225357,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:gtceu:cracker/hydro_crack_ethane",
+    "overclockFactor": 20,
+    "overclockName": "OC x3",
+    "powerFactor": 3.04,
+    "recipesPerMinute": 200,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:start:pyrolyse_oven/oil_medium",
+    "overclockFactor": 15,
+    "overclockName": "OC x3",
+    "powerFactor": 4.053333333333333,
+    "recipesPerMinute": 40,
+  },
+  {
+    "crafterCount": 1.0000000001875,
+    "id": "r:gtceu:large_chemical_reactor/qbit_cpu_wafer_quantum_eye",
+    "overclockFactor": 9.230769230769232,
+    "overclockName": "",
+    "powerFactor": 6.586666666666666,
+    "recipesPerMinute": 12.30769231,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:gtceu:blasting/smelt_deepslate_monazite_ore_to_ingot",
+    "overclockFactor": 128,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 1536,
+  },
+]
+`;
+
 exports[`Solver Processing Coil Multiblocks.gtnh should process without errors 1`] = `
 [
   {
@@ -65,6 +118,107 @@ exports[`Solver Processing Coil Multiblocks.gtnh should process without errors 1
     "overclockName": "OC x2",
     "powerFactor": 2.6666666666666665,
     "recipesPerMinute": 16,
+  },
+]
+`;
+
+exports[`Solver Processing Custom Logic Machines.gtnh should process without errors 1`] = `
+[
+  {
+    "crafterCount": 1,
+    "id": "r:start:vacuum_chemical_reaction_chamber/aerogel_ingot",
+    "overclockFactor": 4,
+    "overclockName": "OC x2",
+    "powerFactor": 4,
+    "recipesPerMinute": 20,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:start:vacuum_chemical_reaction_chamber/aerogel_ingot",
+    "overclockFactor": 8,
+    "overclockName": "OC x1",
+    "powerFactor": 2,
+    "recipesPerMinute": 40,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:start:vacuum_chemical_reaction_chamber/aerogel_ingot",
+    "overclockFactor": 10,
+    "overclockName": "OC x2",
+    "powerFactor": 1.52,
+    "recipesPerMinute": 50,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:start:forge_hammer/blackstone_crushing",
+    "overclockFactor": 1,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 120,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:gtceu:macerator/macerate_melon_slice",
+    "overclockFactor": 1,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 3,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:gtceu:smelting/smelt_endstone_diatomite_ore_to_ingot",
+    "overclockFactor": 1,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 6,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:start:steam_kiln/wrought_iron",
+    "overclockFactor": 1,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 30,
+  },
+  {
+    "crafterCount": 1.0000000000007814,
+    "id": "r:start:plasma_generator/helium_from_helium_plasma",
+    "overclockFactor": 96,
+    "overclockName": "Can't overclock",
+    "powerFactor": 1.1199999999999999,
+    "recipesPerMinute": 4266.66666667,
+  },
+  {
+    "crafterCount": 0.9999999999984376,
+    "id": "r:start:plasma_generator/helium_from_helium_plasma",
+    "overclockFactor": 48,
+    "overclockName": "Can't overclock",
+    "powerFactor": 1.26,
+    "recipesPerMinute": 2133.33333333,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:gtceu:combustion_generator/biodiesel",
+    "overclockFactor": 1,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 150,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:gtceu:combustion_generator/biodiesel",
+    "overclockFactor": 1,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 150,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:start:modular_rocket_module/sorbitol_hypergolic_fuel",
+    "overclockFactor": 1,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 1.875,
   },
 ]
 `;
@@ -190,6 +344,136 @@ exports[`Solver Processing Custom Multiblocks.gtnh should process without errors
     "overclockName": "OC x2",
     "powerFactor": 4,
     "recipesPerMinute": 9.6,
+  },
+]
+`;
+
+exports[`Solver Processing Fusion Reactors.gtnh should process without errors 1`] = `
+[
+  {
+    "crafterCount": 1.0000000008,
+    "id": "r:start:reflector_fusion_reactor/tritanium_from_titanium_and_duranium",
+    "overclockFactor": 2,
+    "overclockName": "Fusion OC x1",
+    "powerFactor": 1,
+    "recipesPerMinute": 5.55555556,
+  },
+  {
+    "crafterCount": 0.9999999999979166,
+    "id": "r:start:reflector_fusion_reactor/tritanium_from_titanium_and_duranium",
+    "overclockFactor": 132.92307692307693,
+    "overclockName": "Fusion OC x5",
+    "powerFactor": 0.24074074074074073,
+    "recipesPerMinute": 369.23076923,
+  },
+]
+`;
+
+exports[`Solver Processing Overclock Multiblocks 2.gtnh should process without errors 1`] = `
+[
+  {
+    "crafterCount": 1,
+    "id": "r:gtceu:arc_furnace/arc_copper_block",
+    "overclockFactor": 70.875,
+    "overclockName": "Perfect OC x3",
+    "powerFactor": 0.9029982363315696,
+    "recipesPerMinute": 150,
+  },
+  {
+    "crafterCount": 1.0000000000166667,
+    "id": "r:start:essence_enchancing/tertium_ench",
+    "overclockFactor": 64.51612903225806,
+    "overclockName": "Perfect OC x2",
+    "powerFactor": 0.992,
+    "recipesPerMinute": 77.41935484,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:start:assembler/duralumin_casing",
+    "overclockFactor": 16,
+    "overclockName": "OC x2",
+    "powerFactor": 4,
+    "recipesPerMinute": 384,
+  },
+  {
+    "crafterCount": 0,
+    "id": "r:start:assembly_line/cryostate_quantum_chiller",
+    "overclockFactor": 4,
+    "overclockName": "OC x2",
+    "powerFactor": 4,
+    "recipesPerMinute": 0,
+  },
+  {
+    "crafterCount": 0,
+    "id": "r:start:large_rotor_machine//csg_stargate_rod_base",
+    "overclockFactor": 8,
+    "overclockName": "OC x1",
+    "powerFactor": 2,
+    "recipesPerMinute": 0,
+  },
+  {
+    "crafterCount": 0,
+    "id": "r:start:ordered_chemistry//kaleidoscope_agitation_serum",
+    "overclockFactor": 8,
+    "overclockName": "OC x1",
+    "powerFactor": 2,
+    "recipesPerMinute": 0,
+  },
+  {
+    "crafterCount": 0.99999999975,
+    "id": "r:start:ordered_chemistry//kaleidoscope_agitation_serum",
+    "overclockFactor": 20,
+    "overclockName": "OC x1",
+    "powerFactor": 0.76,
+    "recipesPerMinute": 13.33333333,
+  },
+  {
+    "crafterCount": 0,
+    "id": "r:start:draco_infusion/chalyblux_dust",
+    "overclockFactor": 10,
+    "overclockName": "OC x2",
+    "powerFactor": 1.52,
+    "recipesPerMinute": 0,
+  },
+  {
+    "crafterCount": 0.9999999997166666,
+    "id": "r:start:nuclear_fission/mox238_fuel_rod",
+    "overclockFactor": 1,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 15.58441558,
+  },
+  {
+    "crafterCount": 1,
+    "id": "r:start:heat_chamber/graphite_nanoparticle_coolant",
+    "overclockFactor": 40,
+    "overclockName": "OC x2",
+    "powerFactor": 1.52,
+    "recipesPerMinute": 192,
+  },
+  {
+    "crafterCount": 48.1000000004625,
+    "id": "r:start:magmatic_drill/nether",
+    "overclockFactor": 8,
+    "overclockName": "OC x1",
+    "powerFactor": 2,
+    "recipesPerMinute": 346.66666667,
+  },
+  {
+    "crafterCount": 0,
+    "id": "r:start:riftic_enhancement/temporic_stargate_rod",
+    "overclockFactor": 2,
+    "overclockName": "OC x1",
+    "powerFactor": 2,
+    "recipesPerMinute": 0,
+  },
+  {
+    "crafterCount": 0,
+    "id": "r:start:hellforge/mythrotight_carbide_steel",
+    "overclockFactor": 4.00057372346529,
+    "overclockName": "OC x2",
+    "powerFactor": 3.999426358812563,
+    "recipesPerMinute": 0,
   },
 ]
 `;
