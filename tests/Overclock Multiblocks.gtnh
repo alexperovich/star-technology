@@ -47,10 +47,10 @@
       },
       {
         "type": "recipe",
-        "recipeId": "r:gtceu:/bacterial_runic_mutator/bacteria_fermentibacter_solvatis_affinity",
+        "recipeId": "r:gtceu:macerator/macerate_duralumin_ingot",
         "voltageTier": 9,
         "fixedCrafterCount": 1,
-        "crafter": "i:start_core:bacterial_runic_mutator:0",
+        "crafter": "i:gtceu:iv_large_miner:0",
         "choices": {}
       },
       {

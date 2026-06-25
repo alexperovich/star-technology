@@ -87,7 +87,7 @@
       },
       {
         "type": "recipe",
-        "recipeId": "r:gtceu:/bacterial_hydrocarbon_harvester/bacteria_fermentibacter_solvatis_harvest",
+        "recipeId": "r:gtceu:/bacterial_hydrocarbon_harvester/bacteria_fermentibacter_solvatis_harvest/p0",
         "voltageTier": 8,
         "fixedCrafterCount": 1,
         "crafter": "i:start_core:bacterial_hydrocarbon_harvester:0",

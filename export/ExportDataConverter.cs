@@ -39,6 +39,16 @@ namespace Source
             ["minecraft:blasting"] = (100, 16),     // 5 seconds, 16 EU/t
         };
 
+        // Hardcoded per-recipe-type transforms, keyed by recipe type id. Each runs on the raw
+        // RecipeJson before item/fluid resolution and returns one or more recipes to emit in its
+        // place (allowing both field edits and one-to-many expansion). The items dictionary is
+        // passed so a transform can synthesize/look up resolved items (e.g. nbt-stripped variants).
+        private static readonly Dictionary<string, Func<RecipeJson, Dictionary<string, Item>, List<RecipeJson>>> RecipeTransforms = new()
+        {
+            ["gtceu:bacterial_hydrocarbon_harvester"] = TransformBacterialHydrocarbonHarvester,
+            ["gtceu:bacterial_breeding_vat"] = TransformBacterialBreedingVat,
+        };
+
         #region JSON models
 
         private class GoodsEntryJson
@@ -213,116 +223,126 @@ namespace Source
             var recipesDir = Path.Combine(dataPath, "recipes");
             foreach (var file in Directory.EnumerateFiles(recipesDir, "*.json", SearchOption.AllDirectories))
             {
-                foreach (var rj in JsonSerializer.Deserialize<List<RecipeJson>>(File.ReadAllText(file), StrictOptions))
+                foreach (var rjRaw in JsonSerializer.Deserialize<List<RecipeJson>>(File.ReadAllText(file), StrictOptions))
                 {
-                    if (IgnoredRecipeTypes.Contains(rj.type))
+                    if (IgnoredRecipeTypes.Contains(rjRaw.type))
                         continue;
-                    if (!recipeTypesById.TryGetValue(rj.type, out var type))
-                        throw new InvalidDataException($"Recipe '{rj.id}' references unknown recipe type '{rj.type}'");
 
-                    var itemInputs = new List<RecipeInput<Item>>();
-                    var oreInputs = new List<RecipeInput<OreDict>>();
-                    var fluidInputs = new List<RecipeInput<Fluid>>();
-                    var itemOutputs = new List<RecipeProduct<Item>>();
-                    var fluidOutputs = new List<RecipeProduct<Fluid>>();
-                    var skip = false;
+                    // Hardcoded per-recipe-type transforms run on the raw JSON before resolution.
+                    // A transform may edit fields and/or expand one recipe into several.
+                    var transformed = RecipeTransforms.TryGetValue(rjRaw.type, out var transform)
+                        ? transform(rjRaw, items)
+                        : new List<RecipeJson> { rjRaw };
 
-                    foreach (var (slotStr, stack) in rj.itemInputs ?? Empty)
+                    foreach (var rj in transformed)
                     {
-                        var slot = int.Parse(slotStr);
-                        if (stack.key.StartsWith("#"))
+                        if (!recipeTypesById.TryGetValue(rj.type, out var type))
+                            throw new InvalidDataException($"Recipe '{rj.id}' references unknown recipe type '{rj.type}'");
+
+                        var itemInputs = new List<RecipeInput<Item>>();
+                        var oreInputs = new List<RecipeInput<OreDict>>();
+                        var fluidInputs = new List<RecipeInput<Fluid>>();
+                        var itemOutputs = new List<RecipeProduct<Item>>();
+                        var fluidOutputs = new List<RecipeProduct<Fluid>>();
+                        var skip = false;
+
+                        foreach (var (slotStr, stack) in rj.itemInputs ?? Empty)
                         {
-                            var (single, ore) = ResolveTagInput(stack.key.Substring(1), tags, items, oreDicts, oreDictByTag);
-                            if (single == null && ore == null)
-                                skip = true;
-                            else if (ore != null)
-                                oreInputs.Add(new RecipeInput<OreDict> { goods = ore, amount = stack.count, slot = slot, probability = Prob(stack.probability) });
+                            var slot = int.Parse(slotStr);
+                            if (stack.key.StartsWith("#"))
+                            {
+                                var (single, ore) = ResolveTagInput(stack.key.Substring(1), tags, items, oreDicts, oreDictByTag);
+                                if (single == null && ore == null)
+                                    skip = true;
+                                else if (ore != null)
+                                    oreInputs.Add(new RecipeInput<OreDict> { goods = ore, amount = stack.count, slot = slot, probability = Prob(stack.probability) });
+                                else
+                                    itemInputs.Add(new RecipeInput<Item> { goods = single, amount = stack.count, slot = slot, probability = Prob(stack.probability) });
+                            }
                             else
-                                itemInputs.Add(new RecipeInput<Item> { goods = single, amount = stack.count, slot = slot, probability = Prob(stack.probability) });
+                            {
+                                var it = ResolveItem(stack.key, items, missingRefs);
+                                if (it == null) skip = true;
+                                else { it.touched = true; itemInputs.Add(new RecipeInput<Item> { goods = it, amount = stack.count, slot = slot, probability = Prob(stack.probability) }); }
+                            }
                         }
-                        else
+
+                        foreach (var (slotStr, stack) in rj.fluidInputs ?? Empty)
                         {
+                            var slot = int.Parse(slotStr);
+                            if (stack.key.StartsWith("#"))
+                            {
+                                var (single, ore) = ResolveFluidTagInput(stack.key.Substring(1), fluidTags, fluids, oreDicts, fluidOreDictByTag);
+                                if (single == null && ore == null)
+                                    skip = true;
+                                else if (ore != null)
+                                    oreInputs.Add(new RecipeInput<OreDict> { goods = ore, amount = stack.amount, slot = slot, probability = Prob(stack.probability) });
+                                else
+                                    fluidInputs.Add(new RecipeInput<Fluid> { goods = single, amount = stack.amount, slot = slot, probability = Prob(stack.probability) });
+                            }
+                            else
+                            {
+                                var fl = ResolveFluid(stack.key, fluids, missingRefs);
+                                if (fl == null) skip = true;
+                                else fluidInputs.Add(new RecipeInput<Fluid> { goods = fl, amount = stack.amount, slot = slot, probability = Prob(stack.probability) });
+                            }
+                        }
+
+                        foreach (var (slotStr, stack) in rj.itemOutputs ?? Empty)
+                        {
+                            if (stack.key.StartsWith("#"))
+                                throw new InvalidDataException($"Recipe '{rj.id}' has a tag '{stack.key}' as an item output, which is not supported");
                             var it = ResolveItem(stack.key, items, missingRefs);
                             if (it == null) skip = true;
-                            else { it.touched = true; itemInputs.Add(new RecipeInput<Item> { goods = it, amount = stack.count, slot = slot, probability = Prob(stack.probability) }); }
+                            else { it.touched = true; itemOutputs.Add(new RecipeProduct<Item> { goods = it, amount = stack.count, slot = int.Parse(slotStr), probability = Prob(stack.probability) }); }
                         }
-                    }
 
-                    foreach (var (slotStr, stack) in rj.fluidInputs ?? Empty)
-                    {
-                        var slot = int.Parse(slotStr);
-                        if (stack.key.StartsWith("#"))
-                        {
-                            var (single, ore) = ResolveFluidTagInput(stack.key.Substring(1), fluidTags, fluids, oreDicts, fluidOreDictByTag);
-                            if (single == null && ore == null)
-                                skip = true;
-                            else if (ore != null)
-                                oreInputs.Add(new RecipeInput<OreDict> { goods = ore, amount = stack.amount, slot = slot, probability = Prob(stack.probability) });
-                            else
-                                fluidInputs.Add(new RecipeInput<Fluid> { goods = single, amount = stack.amount, slot = slot, probability = Prob(stack.probability) });
-                        }
-                        else
+                        foreach (var (slotStr, stack) in rj.fluidOutputs ?? Empty)
                         {
                             var fl = ResolveFluid(stack.key, fluids, missingRefs);
                             if (fl == null) skip = true;
-                            else fluidInputs.Add(new RecipeInput<Fluid> { goods = fl, amount = stack.amount, slot = slot, probability = Prob(stack.probability) });
+                            else fluidOutputs.Add(new RecipeProduct<Fluid> { goods = fl, amount = stack.amount, slot = int.Parse(slotStr), probability = Prob(stack.probability) });
                         }
-                    }
 
-                    foreach (var (slotStr, stack) in rj.itemOutputs ?? Empty)
-                    {
-                        if (stack.key.StartsWith("#"))
-                            throw new InvalidDataException($"Recipe '{rj.id}' has a tag '{stack.key}' as an item output, which is not supported");
-                        var it = ResolveItem(stack.key, items, missingRefs);
-                        if (it == null) skip = true;
-                        else { it.touched = true; itemOutputs.Add(new RecipeProduct<Item> { goods = it, amount = stack.count, slot = int.Parse(slotStr), probability = Prob(stack.probability) }); }
-                    }
+                        if (skip)
+                            continue;
 
-                    foreach (var (slotStr, stack) in rj.fluidOutputs ?? Empty)
-                    {
-                        var fl = ResolveFluid(stack.key, fluids, missingRefs);
-                        if (fl == null) skip = true;
-                        else fluidOutputs.Add(new RecipeProduct<Fluid> { goods = fl, amount = stack.amount, slot = int.Parse(slotStr), probability = Prob(stack.probability) });
-                    }
-
-                    if (skip)
-                        continue;
-
-                    var recipe = new Recipe
-                    {
-                        id = "r:" + rj.id,
-                        recipeType = type,
-                        itemInputs = itemInputs.ToArray(),
-                        oreDictInputs = oreInputs.ToArray(),
-                        fluidInputs = fluidInputs.ToArray(),
-                        itemOutputs = itemOutputs.ToArray(),
-                        fluidOutputs = fluidOutputs.ToArray(),
-                    };
-
-                    if (Namespace(rj.type) == "gtceu")
-                    {
-                        recipe.gtInfo = new GtRecipeInfo
+                        var recipe = new Recipe
                         {
-                            voltage = (int)Math.Min(rj.voltage, int.MaxValue),
-                            durationTicks = rj.duration,
-                            amperage = 1,
-                            voltageTier = VoltageTiers.GetVoltageTierFromRaw(rj.voltage),
-                            metadata = BuildRecipeMetadata(rj.data, rj.id),
+                            id = "r:" + rj.id,
+                            recipeType = type,
+                            itemInputs = itemInputs.ToArray(),
+                            oreDictInputs = oreInputs.ToArray(),
+                            fluidInputs = fluidInputs.ToArray(),
+                            itemOutputs = itemOutputs.ToArray(),
+                            fluidOutputs = fluidOutputs.ToArray(),
                         };
-                    }
-                    else if (VanillaGtTimings.TryGetValue(rj.fullTypeName, out var timing))
-                    {
-                        recipe.gtInfo = new GtRecipeInfo
-                        {
-                            voltage = timing.voltage,
-                            durationTicks = rj.duration > 0 ? rj.duration : timing.durationTicks,
-                            amperage = 1,
-                            voltageTier = VoltageTiers.GetVoltageTierFromRaw(timing.voltage),
-                            metadata = BuildRecipeMetadata(rj.data, rj.id),
-                        };
-                    }
 
-                    recipes.Add(recipe);
+                        if (Namespace(rj.type) == "gtceu")
+                        {
+                            recipe.gtInfo = new GtRecipeInfo
+                            {
+                                voltage = (int)Math.Min(rj.voltage, int.MaxValue),
+                                durationTicks = rj.duration,
+                                amperage = 1,
+                                voltageTier = VoltageTiers.GetVoltageTierFromRaw(rj.voltage),
+                                metadata = BuildRecipeMetadata(rj.data, rj.id),
+                            };
+                        }
+                        else if (VanillaGtTimings.TryGetValue(rj.fullTypeName, out var timing))
+                        {
+                            recipe.gtInfo = new GtRecipeInfo
+                            {
+                                voltage = timing.voltage,
+                                durationTicks = rj.duration > 0 ? rj.duration : timing.durationTicks,
+                                amperage = 1,
+                                voltageTier = VoltageTiers.GetVoltageTierFromRaw(timing.voltage),
+                                metadata = BuildRecipeMetadata(rj.data, rj.id),
+                            };
+                        }
+
+                        recipes.Add(recipe);
+                    }
                 }
             }
 
@@ -570,6 +590,173 @@ namespace Source
                 return;
             }
         }
+
+        #region Hardcoded recipe transforms
+
+        // gtceu:bacterial_hydrocarbon_harvester:
+        //  - strip nbt from item inputs (synthesizing a clean item when no nbt-less base exists),
+        //  - force the minecraft:sugar input count to 2,
+        //  - force the #forge:biomass fluid input to 200,
+        //  - expand into one recipe per permutation of the first 3 fluid output keys (amounts stay
+        //    bound to their slot; only the keys are permuted).
+        private static List<RecipeJson> TransformBacterialHydrocarbonHarvester(RecipeJson rj, Dictionary<string, Item> items)
+        {
+            foreach (var stack in (rj.itemInputs ?? Empty).Values)
+            {
+                stack.key = StripItemNbt(stack.key, items);
+                if (stack.key == "minecraft:sugar")
+                    stack.count = 2;
+            }
+
+            foreach (var stack in (rj.fluidInputs ?? Empty).Values)
+            {
+                if (stack.key == "#forge:biomass")
+                    stack.amount = 200;
+            }
+
+            return PermuteFirstNFluidOutputKeys(rj, 3);
+        }
+
+        // gtceu:bacterial_breeding_vat:
+        //  - strip nbt from item inputs and item outputs (synthesizing clean items as needed),
+        //  - combine item outputs that became the same item after stripping (summing their counts).
+        private static List<RecipeJson> TransformBacterialBreedingVat(RecipeJson rj, Dictionary<string, Item> items)
+        {
+            foreach (var stack in (rj.itemInputs ?? Empty).Values)
+                stack.key = StripItemNbt(stack.key, items);
+            foreach (var stack in (rj.itemOutputs ?? Empty).Values)
+                stack.key = StripItemNbt(stack.key, items);
+
+            rj.itemOutputs = CombineSameItemStacks(rj.itemOutputs);
+            return new List<RecipeJson> { rj };
+        }
+
+        // Merges item stacks that share the same key into a single stack, summing counts and keeping
+        // the lowest slot number. Used after nbt-stripping makes formerly-distinct variants identical.
+        private static Dictionary<string, StackJson> CombineSameItemStacks(Dictionary<string, StackJson> stacks)
+        {
+            if (stacks == null)
+                return null;
+            var byKey = new Dictionary<string, (int slot, StackJson stack)>();
+            foreach (var (slotStr, stack) in stacks)
+            {
+                var slot = int.Parse(slotStr);
+                if (byKey.TryGetValue(stack.key, out var existing))
+                {
+                    existing.stack.count += stack.count;
+                    if (slot < existing.slot)
+                        byKey[stack.key] = (slot, existing.stack);
+                }
+                else
+                {
+                    byKey[stack.key] = (slot, stack);
+                }
+            }
+            return byKey.Values.ToDictionary(v => v.slot.ToString(), v => v.stack);
+        }
+
+        // Strips the "#<nbt-hash>" suffix from an item key. Tags (leading '#') are left as-is.
+        // When the resulting nbt-less base key has no entry of its own, a clean copy of the nbt
+        // variant is synthesized under the base key so the recipe resolves to a single, nbt-free item.
+        private static string StripItemNbt(string key, Dictionary<string, Item> items)
+        {
+            if (key.StartsWith("#"))
+                return key;
+            var hashIndex = key.IndexOf('#');
+            if (hashIndex < 0)
+                return key;
+            var baseKey = key.Substring(0, hashIndex);
+            if (!items.ContainsKey(baseKey) && items.TryGetValue(key, out var variant))
+                items[baseKey] = CloneItemWithoutNbt(variant);
+            return baseKey;
+        }
+
+        private static Item CloneItemWithoutNbt(Item source) => new()
+        {
+            name = source.name,
+            mod = source.mod,
+            internalName = source.internalName,
+            tooltip = source.tooltip,
+            nbt = null,
+            stackSize = source.stackSize,
+            damage = source.damage,
+            numericId = source.numericId,
+            imagePath = source.imagePath,
+            recipeModifiers = new List<string>(source.recipeModifiers),
+            metadata = new List<ItemMetadata>(source.metadata),
+        };
+
+        // Produces one recipe clone per permutation of the keys of the first n fluid output slots
+        // (slots taken in ascending numeric order). Output amounts stay attached to their slot;
+        // only the keys move. Slots beyond the first n are left unchanged.
+        private static List<RecipeJson> PermuteFirstNFluidOutputKeys(RecipeJson rj, int n)
+        {
+            var outputs = rj.fluidOutputs;
+            if (outputs == null)
+                return new List<RecipeJson> { rj };
+            var slots = outputs.Keys.OrderBy(int.Parse).Take(n).ToList();
+            if (slots.Count < n)
+                return new List<RecipeJson> { rj };
+
+            var keys = slots.Select(s => outputs[s].key).ToList();
+            var result = new List<RecipeJson>();
+            var permIndex = 0;
+            foreach (var perm in Permutations(keys))
+            {
+                var clone = CloneRecipe(rj);
+                for (var i = 0; i < slots.Count; i++)
+                    clone.fluidOutputs[slots[i]].key = perm[i];
+                clone.id = rj.id + "/p" + permIndex;
+                result.Add(clone);
+                permIndex++;
+            }
+            return result;
+        }
+
+        private static IEnumerable<List<T>> Permutations<T>(List<T> items)
+        {
+            if (items.Count <= 1)
+            {
+                yield return new List<T>(items);
+                yield break;
+            }
+            for (var i = 0; i < items.Count; i++)
+            {
+                var rest = new List<T>(items);
+                rest.RemoveAt(i);
+                foreach (var perm in Permutations(rest))
+                {
+                    perm.Insert(0, items[i]);
+                    yield return perm;
+                }
+            }
+        }
+
+        private static RecipeJson CloneRecipe(RecipeJson source) => new()
+        {
+            id = source.id,
+            type = source.type,
+            fullTypeName = source.fullTypeName,
+            data = source.data,
+            duration = source.duration,
+            voltage = source.voltage,
+            itemInputs = CloneStacks(source.itemInputs),
+            fluidInputs = CloneStacks(source.fluidInputs),
+            itemOutputs = CloneStacks(source.itemOutputs),
+            fluidOutputs = CloneStacks(source.fluidOutputs),
+        };
+
+        private static Dictionary<string, StackJson> CloneStacks(Dictionary<string, StackJson> source)
+        {
+            if (source == null)
+                return null;
+            var clone = new Dictionary<string, StackJson>(source.Count);
+            foreach (var (k, v) in source)
+                clone[k] = new StackJson { key = v.key, count = v.count, amount = v.amount, probability = v.probability };
+            return clone;
+        }
+
+        #endregion
 
         private static int Prob(int? probability)
             => probability ?? 10000;

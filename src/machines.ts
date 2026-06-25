@@ -381,6 +381,12 @@ function addHellforgeHeatingFluid(builder:MachineBuilder) {
 const crafterModifierRegistry: {[id:string]: ModifierImpl} = {
     "start_core:hellforge": addHellforgeHeatingFluid,
     "start_core:fornaxs_infernal_rotary_engine": addHellforgeHeatingFluid,
+    "start_core:bacterial_hydrocarbon_harvester": builder => {
+        builder.infos.push("Input/output amounts are for a perfect-stat (5/1/1) bacteria colony.");
+    },
+    "start_core:bacterial_breeding_vat": builder => {
+        builder.infos.push("Output assumes no mutation.");
+    },
 };
 
 // Maps each known modifier id to the contribution it makes to a machine.
