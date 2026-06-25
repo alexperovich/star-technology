@@ -5,7 +5,7 @@ import { voltageTier, GtVoltageTier, formatAmount } from "./utils.js";
 import { ShowTooltip } from "./tooltip.js";
 import { IconBox } from "./itemIcon.js";
 import { ShowDropdown, HideDropdown } from "./dropdown.js";
-import { notImplementedMachine, singleBlockMachine, GetSingleBlockMachine, GetParameter, BuildMachineFromCrafter } from "./machines.js";
+import { notImplementedMachine, singleBlockMachine, GetSingleBlockMachine, GetParameter, BuildMachineFromCrafter, getChoiceDefaultDescriptors } from "./machines.js";
 
 const linkAlgorithmNames: { [key in LinkAlgorithm]: string } = {
     [LinkAlgorithm.Match]: "",
@@ -127,6 +127,14 @@ export class RecipeList {
                             ${options.map(goods => {
                                 const isSingleblock = recipeType.singleblocks.includes(goods as Item);
                                 const displayName = isSingleblock ? "Singleblock "+recipe.recipeType.name : goods.name;
+                                const isMultiblock = recipeType.multiblocks.includes(goods as Item);
+                                const isDefault = isMultiblock && page.settings.defaultCrafters?.[recipeType.name] === goods.id;
+                                const defaultToggle = isMultiblock ? `
+                                    <a href="#" class="default-crafter-toggle"
+                                        data-iid="${obj.iid}"
+                                        data-action="toggle_default_crafter"
+                                        data-id="${goods.id}">${isDefault ? 'Default ✓' : 'Set as default'}</a>
+                                ` : '';
                                 return `
                                     <div class="dropdown-item" 
                                         data-iid="${obj.iid}"
@@ -134,6 +142,7 @@ export class RecipeList {
                                         data-id="${goods.id}">
                                         <item-icon data-id="${goods.id}"></item-icon>
                                         <span class="item-name">${displayName}</span>
+                                        ${defaultToggle}
                                     </div>
                                 `;
                             }).join('')}
@@ -250,7 +259,48 @@ export class RecipeList {
             if (obj instanceof RecipeModel && event.type === "change") {
                 const target = event.target as HTMLInputElement | HTMLSelectElement;
                 const choice = target.getAttribute("data-choice")!;
-                obj.choices[choice] = parseFloat(target.value);
+                obj.userChoices[choice] = parseFloat(target.value);
+                UpdateProject();
+            }
+        });
+
+        this.actionHandlers.set("open_default_choices", (obj, event, parent) => {
+            if (obj instanceof PageModel && event.type === "click") {
+                const populateDropdown = (container: HTMLElement) => {
+                    const rows = getChoiceDefaultDescriptors().map(descriptor => {
+                        const current = page.settings.defaultChoices?.[descriptor.key];
+                        const options = descriptor.options.map((option, index) =>
+                            `<option value="${index}" ${index === current ? 'selected' : ''}>${option}</option>`
+                        ).join('');
+                        return `
+                            <div class="machine-choice-container">
+                                <label>${descriptor.description}: </label>
+                                <select class="machine-choice" data-iid="${page.iid}" data-action="update_default_choice" data-choice="${descriptor.key}">
+                                    <option value="" ${current === undefined ? 'selected' : ''}>No default</option>
+                                    ${options}
+                                </select>
+                            </div>
+                        `;
+                    }).join('');
+                    container.innerHTML = `
+                        <div class="dropdown-list">
+                            Default machine choices:
+                            ${rows}
+                        </div>
+                    `;
+                };
+                ShowDropdown(event.target as HTMLElement, populateDropdown);
+            }
+        });
+
+        this.actionHandlers.set("update_default_choice", (obj, event, parent) => {
+            if (obj instanceof PageModel && event.type === "change") {
+                const target = event.target as HTMLSelectElement;
+                const choice = target.getAttribute("data-choice")!;
+                if (target.value === "")
+                    delete page.settings.defaultChoices[choice];
+                else
+                    page.settings.defaultChoices[choice] = parseInt(target.value);
                 UpdateProject();
             }
         });
@@ -280,6 +330,22 @@ export class RecipeList {
                         obj.crafter = undefined;
                     UpdateProject();
                     HideDropdown();
+                }
+            }
+        });
+
+        this.actionHandlers.set("toggle_default_crafter", (obj, event, parent) => {
+            if (obj instanceof RecipeModel && event.type === "click") {
+                event.preventDefault();
+                const target = (event.target as HTMLElement).closest("[data-action]");
+                const recipeType = obj.recipe?.recipeType;
+                if (target && recipeType) {
+                    const goodsId = target.getAttribute("data-id")!;
+                    if (page.settings.defaultCrafters[recipeType.name] === goodsId)
+                        delete page.settings.defaultCrafters[recipeType.name];
+                    else
+                        page.settings.defaultCrafters[recipeType.name] = goodsId;
+                    UpdateProject();
                 }
             }
         });
@@ -816,6 +882,10 @@ export class RecipeList {
                         <option value="sec" ${page.settings.timeUnit === "sec" ? 'selected' : ''}>Seconds</option>
                         <option value="tick" ${page.settings.timeUnit === "tick" ? 'selected' : ''}>Ticks</option>
                     </select>
+                </div>
+                <div class="setting-item">
+                    <label>Default machine choices:</label>
+                    <button data-iid="${page.iid}" data-action="open_default_choices">Edit defaults…</button>
                 </div>
                 <div class="share-links">
                     Share:

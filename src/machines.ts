@@ -217,6 +217,28 @@ function parallelHatchCount(tiers:ParallelHatchTier[], index:number):number {
     return Math.max(1, tier?.parallels ?? 1);
 }
 
+// Describes every machine choice key the user can set a global default for,
+// together with the human-readable option labels (matching how each choice is
+// rendered on individual recipes). Used by the "Default machine choices" editor.
+export type ChoiceDescriptor = {
+    key: string;
+    description: string;
+    options: string[];
+};
+
+export function getChoiceDefaultDescriptors():ChoiceDescriptor[] {
+    return [
+        { key: "coilTier", description: "Coils", options: CoilTierNames.map((name, index) => `T${index+1}: ${name}`) },
+        { key: "parallels", description: "Parallel Hatch", options: ParallelHatchTiers.map((tier) => `${tier.name}: ${tier.parallels}`) },
+        { key: "absoluteParallels", description: "Absolute Parallel Hatch", options: AbsoluteParallelHatchTiers.map((tier) => `${tier.name}: ${tier.parallels}`) },
+        { key: "reflector", description: "Reflector", options: ReflectorTiers.map((reflector) => `T${reflector.tier}: ${reflector.name}`) },
+        { key: "heatingFluid", description: "Heating Fluid", options: HeatingFluids.map((fluid) => `${fluid.name}: ${fluid.temperature}MK`) },
+        { key: "rotorHolder", description: "Rotor Holder", options: RotorHolderTiers.map((holder) => holder.name) },
+        { key: "turbineRotor", description: "Rotor", options: TurbineRotors.map((rotor) => `${rotor.name} (P:${rotor.power}%, E:${rotor.efficiency}%)`) },
+        { key: "boosting", description: "Boosting", options: ["None", "Passive", "Active"] },
+    ];
+}
+
 // --- Hell Forge heating fluids ---
 // The Hell Forge heats its crucible with a heating fluid. The recipe's required
 // temperature (ebf_temp, in MK) determines the minimum usable fluid; every 450MK
@@ -359,9 +381,9 @@ function addParallelChoice(builder:MachineBuilder) {
 // Like addParallelChoice, but the parallels do not increase the EU consumed:
 // each parallel runs for free, so the per-recipe power is divided by the count.
 function addFreeParallelChoice(builder:MachineBuilder) {
-    builder.choices["parallels"] = makeParallelHatchChoice(AbsoluteParallelHatchTiers);
-    builder.parallelFactors.push((_recipe, choices) => parallelHatchCount(AbsoluteParallelHatchTiers, choices.parallels));
-    builder.powerFactors.push((_recipe, choices) => 1 / parallelHatchCount(AbsoluteParallelHatchTiers, choices.parallels));
+    builder.choices["absoluteParallels"] = makeParallelHatchChoice(AbsoluteParallelHatchTiers);
+    builder.parallelFactors.push((_recipe, choices) => parallelHatchCount(AbsoluteParallelHatchTiers, choices.absoluteParallels));
+    builder.powerFactors.push((_recipe, choices) => 1 / parallelHatchCount(AbsoluteParallelHatchTiers, choices.absoluteParallels));
 }
 
 // Hell Forge heating-fluid modifier. The selected fluid sets the crucible
@@ -621,7 +643,7 @@ function makeTurbineMachine(spec:TurbineSpec):Machine {
     const minHolderIndex = Math.max(0, RotorHolderTiers.findIndex(h => h.tier >= spec.controllerTier));
     const choices:{[key:string]:Choice} = {
         rotorHolder: { description: "Rotor Holder", choices: RotorHolderTiers.map(h => h.name), min: minHolderIndex },
-        turbineRotor: { description: "Rotor", choices: TurbineRotors.map(r => r.name) },
+        turbineRotor: { description: "Rotor", choices: TurbineRotors.map(r => `${r.name} (P:${r.power}%, E:${r.efficiency}%)`) },
     };
     if (spec.boostTable)
         choices.boosting = { description: "Boosting", choices: ["None", "Passive", "Active"] };

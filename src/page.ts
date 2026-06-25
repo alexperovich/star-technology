@@ -227,6 +227,7 @@ export class RecipeModel extends RecipeGroupEntry
     recipe?:Recipe;
     voltageTier: number = 0;
     crafter: string | undefined;
+    userChoices: {[key:string]:number} = {};
     choices: {[key:string]:number} = {};
     fixedCrafterCount?:number;
 
@@ -247,7 +248,7 @@ export class RecipeModel extends RecipeGroupEntry
         visitor.VisitData(this, "recipeId", this.recipeId);
         visitor.VisitData(this, "voltageTier", this.voltageTier);
         visitor.VisitData(this, "crafter", this.crafter);
-        visitor.VisitData(this, "choices", this.choices);
+        visitor.VisitData(this, "choices", this.userChoices);
         visitor.VisitData(this, "fixedCrafterCount", this.fixedCrafterCount);
     }
 
@@ -262,13 +263,13 @@ export class RecipeModel extends RecipeGroupEntry
             if (typeof source.crafter === "string")
                 this.crafter = source.crafter;
             if (source.choices instanceof Object)
-                this.choices = source.choices;
+                this.userChoices = source.choices;
             if (typeof source.fixedCrafterCount === "number")
                 this.fixedCrafterCount = source.fixedCrafterCount;
         }
     }
 
-    ValidateChoices(machineInfo: Machine, recipe: RecipeModel): void {
+    ValidateChoices(machineInfo: Machine, recipe: RecipeModel, defaultChoices?: {[key:string]:number}): void {
         if (!machineInfo.choices) {
             this.choices = {};
             return;
@@ -277,7 +278,7 @@ export class RecipeModel extends RecipeGroupEntry
         const validatedChoices: {[key:string]:number} = {};
 
         for (const [key, choice] of Object.entries(machineInfo.choices)) {
-            const currentValue = this.choices[key];
+            const currentValue = this.userChoices[key] ?? defaultChoices?.[key];
             const typedChoice = choice as Choice;
 
             let min = typedChoice.min ?? 0;
@@ -341,6 +342,8 @@ export class ProductModel extends ModelObject
 type Settings = {
     minVoltage: number;
     timeUnit: "hour" | "min" | "sec" | "tick";
+    defaultCrafters: {[recipeTypeName:string]:string};
+    defaultChoices: {[choiceKey:string]:number};
 }
 
 export class PageModel extends ModelObject
@@ -351,7 +354,7 @@ export class PageModel extends ModelObject
     private history: string[] = [];
     private readonly MAX_HISTORY = 50;
     status: "not solved" | "solved" | "infeasible" | "unbounded" = "not solved";
-    settings: Settings = {minVoltage: 0, timeUnit: "min"};
+    settings: Settings = {minVoltage: 0, timeUnit: "min", defaultCrafters: {}, defaultChoices: {}};
     timeScale: number = 1;
 
     Visit(visitor: ModelObjectVisitor): void {
@@ -380,6 +383,10 @@ export class PageModel extends ModelObject
                     this.settings.minVoltage = source.settings.minVoltage;
                 if (typeof source.settings.timeUnit === "string")
                     this.settings.timeUnit = source.settings.timeUnit as "hour" | "min" | "sec" | "tick";
+                if (source.settings.defaultCrafters instanceof Object)
+                    this.settings.defaultCrafters = source.settings.defaultCrafters;
+                if (source.settings.defaultChoices instanceof Object)
+                    this.settings.defaultChoices = source.settings.defaultChoices;
             }
         }
     }

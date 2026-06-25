@@ -65,6 +65,8 @@ function CreateLinkByAlgorithm(model:Model, algorithm:LinkAlgorithm, group:Recip
     model.constraints[linkName] = {equal:amount};
 }
 
+let solvingPage:PageModel | undefined;
+
 function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkCollection)
 {
     let recipe = Repository.current.GetById<Recipe>(recipeModel.recipeId);
@@ -82,6 +84,18 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         let crafter = recipeModel.crafter ? Repository.current.GetById<Item>(recipeModel.crafter) : null;
         if (crafter != null && !recipe.recipeType.multiblocks.includes(crafter))
             crafter = null;
+        if (crafter === null) {
+            const defaultCrafterId = solvingPage?.settings?.defaultCrafters?.[recipe.recipeType.name];
+            if (defaultCrafterId) {
+                const defaultCrafter = Repository.current.GetById<Item>(defaultCrafterId);
+                if (defaultCrafter && recipe.recipeType.multiblocks.includes(defaultCrafter)) {
+                    const machine = BuildMachineFromCrafter(defaultCrafter, recipe.recipeType);
+                    const excluded = machine?.excludesRecipe ? machine.excludesRecipe(recipe) : false;
+                    if (!excluded)
+                        crafter = defaultCrafter;
+                }
+            }
+        }
         let canBeSingleblock = (() => {
             if (recipe.recipeType.singleblocks.length == 0)
                 return false;
@@ -110,7 +124,7 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         if (machineInfo.fixedVoltageTier) {
             recipeModel.voltageTier = GetParameter(machineInfo.fixedVoltageTier, recipeModel)!;
         }
-        recipeModel.ValidateChoices(machineInfo, recipeModel);
+        recipeModel.ValidateChoices(machineInfo, recipeModel, solvingPage?.settings?.defaultChoices);
         let amperage = gtRecipe.amperage;
         let actualVoltage = voltageTier[recipeModel.voltageTier].voltage;
         let machineParallels = Math.max(1, GetParameter(machineInfo.parallels, recipeModel));
@@ -289,6 +303,7 @@ function ApplySolutionGroup(group:RecipeGroupModel, solution:Solution, model:Mod
 export function SolvePage(page:PageModel):void
 {
     try {
+        solvingPage = page;
         let model:Model = {
             optimize: "obj",
             opType: "min",
