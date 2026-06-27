@@ -47,10 +47,10 @@
       },
       {
         "type": "recipe",
-        "recipeId": "r:gtceu:macerator/macerate_duralumin_ingot",
+        "recipeId": "r:start:mechanical_sieve/sand_sieving",
         "voltageTier": 9,
         "fixedCrafterCount": 1,
-        "crafter": "i:gtceu:iv_large_miner:0",
+        "crafter": "i:gtceu:mechanical_sieve:0",
         "choices": {}
       },
       {

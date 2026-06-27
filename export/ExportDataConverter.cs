@@ -30,6 +30,15 @@ namespace Source
         // Recipe types to exclude entirely (informational only, not real crafting).
         private static readonly HashSet<string> IgnoredRecipeTypes = new() { "gtceu:multiblock_info" };
 
+        // These items are listed as crafters in the data export but should not be
+        // treated as usable machines.
+        private static readonly HashSet<string> IgnoredCrafters = new()
+        {
+            "gtceu:luv_large_miner",
+            "gtceu:ev_large_miner",
+            "gtceu:iv_large_miner",
+        };
+
         // Vanilla furnace recipe types run in GT machines at a fixed energy cost,
         // independent of the vanilla recipe. The recipe's own duration is used as the
         // cook time when present; otherwise these defaults apply. Keyed by fullTypeName.
@@ -134,6 +143,7 @@ namespace Source
                 ApplyItemMetadata(item, entry.metadata, key);
                 ApplyMaxEnergyStorage(item, entry.tooltip);
                 ApplyAbsoluteParallels(item, entry.tooltip);
+                ApplyMaxParallels(item, entry.tooltip);
                 items[key] = item;
             }
 
@@ -207,6 +217,8 @@ namespace Source
                 {
                     foreach (var crafterId in rt.crafters)
                     {
+                        if (IgnoredCrafters.Contains(crafterId))
+                            continue;
                         if (items.TryGetValue(crafterId, out var crafterItem))
                         {
                             crafterItem.touched = true;
@@ -587,6 +599,33 @@ namespace Source
                     continue;
                 var count = long.Parse(match.Groups[1].Value.Replace(",", ""), CultureInfo.InvariantCulture);
                 item.metadata.Add(new ItemMetadata { key = "absoluteParallels", value = count });
+                return;
+            }
+        }
+
+        // Parallel Control Hatches advertise their parallel limit only in the tooltip
+        // ("Allows to run up to N recipes in parallel"), sharing that line with the
+        // Absolute Parallel Mastery Hatch. The upstream `maxParallel` metadata is
+        // unreliable, so override it with the tooltip-derived value. Absolute hatches
+        // additionally advertise "Without extra energy consumption"; skip those here
+        // (they are handled by ApplyAbsoluteParallels).
+        private static void ApplyMaxParallels(Item item, List<string> tooltipLines)
+        {
+            if (tooltipLines == null)
+                return;
+            var strippedLines = tooltipLines.Select(rawLine => Regex.Replace(rawLine, "\u00A7.", "")).ToList();
+            var isAbsolute = strippedLines.Any(line =>
+                line.IndexOf("Without extra energy consumption", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (isAbsolute)
+                return;
+            foreach (var line in strippedLines)
+            {
+                var match = AbsoluteParallelsRegex.Match(line);
+                if (!match.Success)
+                    continue;
+                var count = long.Parse(match.Groups[1].Value.Replace(",", ""), CultureInfo.InvariantCulture);
+                item.metadata.RemoveAll(m => m.key == "maxParallel");
+                item.metadata.Add(new ItemMetadata { key = "maxParallel", value = count });
                 return;
             }
         }

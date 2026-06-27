@@ -1,6 +1,6 @@
 import { RecipeModel, OverclockResult } from "./page.js";
 import { Fluid, Goods, Item, Recipe, RecipeInOut, RecipeIoType, RecipeType, Repository } from "./repository.js";
-import { TIER_LV, TIER_MV, TIER_LUV, TIER_ZPM, TIER_UV, TIER_UHV, TIER_UEV, TIER_UIV, TIER_UXV, CoilTierNames, CoilTiers } from "./utils.js";
+import { TIER_LV, TIER_MV, TIER_EV, TIER_IV, TIER_LUV, TIER_ZPM, TIER_UV, TIER_UHV, TIER_UEV, TIER_UIV, TIER_UXV, CoilTierNames, CoilTiers } from "./utils.js";
 import { voltageTier, getFusionTierByStartupCost, formatTicksAsTime, RotorHolderTiers, TurbineRotors, ReflectorTiers, ParallelHatchTier, ParallelHatchTiers, AbsoluteParallelHatchTiers, HeatingFluids } from "./utils.js";
 
 export type MachineCoefficient<T> = Exclude<T, Function> | ((recipe:RecipeModel, choices:{[key:string]:number}) => T);
@@ -235,7 +235,9 @@ export function getChoiceDefaultDescriptors():ChoiceDescriptor[] {
         { key: "heatingFluid", description: "Heating Fluid", options: HeatingFluids.map((fluid) => `${fluid.name}: ${fluid.temperature}MK`) },
         { key: "rotorHolder", description: "Rotor Holder", options: RotorHolderTiers.map((holder) => holder.name) },
         { key: "turbineRotor", description: "Rotor", options: TurbineRotors.map((rotor) => `${rotor.name} (P:${rotor.power}%, E:${rotor.efficiency}%)`) },
-        { key: "boosting", description: "Boosting", options: ["None", "Passive", "Active"] },
+        { key: "boosting", description: "Turbine Boosting", options: ["None", "Passive", "Active"] },
+        { key: "combustionBoosting", description: "Combustion Boosting", options: ["None", "Boosting"] },
+        { key: "cooling", description: "Combustion Frame Cooling", options: CombustionFrameCooling.map((c) => c.label) },
     ];
 }
 
@@ -646,7 +648,7 @@ function makeTurbineMachine(spec:TurbineSpec):Machine {
         turbineRotor: { description: "Rotor", choices: TurbineRotors.map(r => `${r.name} (P:${r.power}%, E:${r.efficiency}%)`) },
     };
     if (spec.boostTable)
-        choices.boosting = { description: "Boosting", choices: ["None", "Passive", "Active"] };
+        choices.boosting = { description: "Turbine Boosting", choices: ["None", "Passive", "Active"] };
 
     const tierDiffOf = (selected:{[key:string]:number}) => {
         const holder = RotorHolderTiers[selected.rotorHolder] ?? RotorHolderTiers[0];
@@ -690,6 +692,81 @@ function makeTurbineMachine(spec:TurbineSpec):Machine {
     };
 }
 
+// ============================================================================
+// Combustion generators (engines and modules)
+// ----------------------------------------------------------------------------
+// The large/extreme combustion engines and the modular combustion/rocket
+// modules behave like the turbine generators but burn fuel instead of spinning
+// rotors. Each advertises a base EU/t output and an optional boost: supplying a
+// secondary fluid raises the output (and burns fuel proportionally faster).
+// The "module" variants live inside a Modular Combustion Frame, which feeds them
+// coolant for an additional EU/t multiplier.
+//
+// As with the turbines, the solver's energy is independent of the parallel
+// count, so `power` carries the EU-per-fuel multiplier while `parallels` only
+// controls how much fuel a single generator burns (i.e. how many are needed).
+//   maxVoltage = baseProduction * (boosting ? 2 : 1)     // 2x fuel consumption
+//   energyModifier (EU per fuel) = (boosting ? boostMultiplier/2 : 1) * cooling
+// e.g. the LCE produces 2048 EU/t base and "up to 6144 EU/t at 2x fuel": that is
+// 64 parallels * 1.0 power, boosted to 64*2=128 parallels * 1.5 power = 6144.
+// ============================================================================
+
+// Frame coolant options, shared by every module variant. Index 0 (no coolant)
+// is the default and applies the frame's -10% penalty.
+const CombustionFrameCooling:{label:string, factor:number}[] = [
+    { label: "None (-10%)", factor: 0.9 },
+    { label: "Distilled Water (+20%)", factor: 1.2 },
+    { label: "De-Ionized Water (+40%)", factor: 1.4 },
+];
+
+type CombustionSpec = {
+    voltageTier: number;        // tier the generator runs at (fixed in the UI)
+    baseProduction: number;     // base EU/t output
+    boostMultiplier: number;    // boosted EU/t = baseProduction * boostMultiplier
+    boostFluid: string;         // fluid supplied to boost output
+    modular?: boolean;          // module variants sit in a Modular Combustion Frame
+};
+
+function makeCombustionMachine(spec:CombustionSpec):Machine {
+    const choices:{[key:string]:Choice} = {
+        combustionBoosting: { description: "Boosting", choices: ["None", spec.boostFluid] },
+    };
+    if (spec.modular)
+        choices.cooling = { description: "Frame Cooling", choices: CombustionFrameCooling.map(c => c.label) };
+
+    const isBoosting = (selected:{[key:string]:number}) => (selected.combustionBoosting ?? 0) > 0;
+
+    const power:MachineCoefficient<number> = (_recipe, selected) => {
+        let modifier = isBoosting(selected) ? spec.boostMultiplier / 2 : 1;
+        if (spec.modular)
+            modifier *= (CombustionFrameCooling[selected.cooling ?? 0] ?? CombustionFrameCooling[0]).factor;
+        return modifier;
+    };
+
+    const parallels:MachineCoefficient<number> = (recipe, selected) => {
+        const maxVoltage = spec.baseProduction * (isBoosting(selected) ? 2 : 1);
+        const recipeVoltage = Math.abs(recipe.recipe?.gtRecipe.voltage ?? 0);
+        if (recipeVoltage <= 0)
+            return 1;
+        return Math.max(1, Math.ceil(maxVoltage / recipeVoltage));
+    };
+
+    const info = spec.modular
+        ? "Boosting raises output at the cost of extra fuel; the boosting fluid is not modelled. Frame cooling adds a flat EU/t multiplier."
+        : "Boosting raises output at the cost of extra fuel; the boosting fluid is not modelled.";
+
+    return {
+        choices,
+        overclocker: NullOverclocker.instance,
+        speed: 1,
+        power,
+        parallels,
+        fixedVoltageTier: spec.voltageTier,
+        ignoreParallelLimit: true,
+        info,
+    };
+}
+
 // Crafters whose machine cannot be derived from modifiers. Keyed by the binary
 // item id (i:<mod>:<internalName>:<damage>).
 const customMachineRegistry:{[crafterId:string]: () => Machine} = {
@@ -697,6 +774,12 @@ const customMachineRegistry:{[crafterId:string]: () => Machine} = {
     "i:gtceu:plasma_large_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 1 }),
     "i:gtceu:supreme_plasma_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 6, boostTable: [0.9, 1.25, 2] }),
     "i:gtceu:nyinsane_plasma_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 12, boostTable: [0.8, 1.5, 3] }),
+    "i:gtceu:large_combustion_engine:0": () => makeCombustionMachine({ voltageTier: TIER_EV, baseProduction: 2048, boostMultiplier: 3, boostFluid: "Oxygen" }),
+    "i:gtceu:extreme_combustion_engine:0": () => makeCombustionMachine({ voltageTier: TIER_IV, baseProduction: 8192, boostMultiplier: 4, boostFluid: "Liquid Oxygen" }),
+    "i:start_core:luv_combustion_module:0": () => makeCombustionMachine({ voltageTier: TIER_LUV, baseProduction: 32768, boostMultiplier: 5, boostFluid: "White Fuming Nitric Acid", modular: true }),
+    "i:start_core:zpm_combustion_module:0": () => makeCombustionMachine({ voltageTier: TIER_ZPM, baseProduction: 131072, boostMultiplier: 6, boostFluid: "Red Fuming Nitric Acid", modular: true }),
+    "i:start_core:uv_combustion_module:0": () => makeCombustionMachine({ voltageTier: TIER_UV, baseProduction: 1048576, boostMultiplier: 4, boostFluid: "Dioxygen Difluoride", modular: true }),
+    "i:start_core:uev_combustion_module:0": () => makeCombustionMachine({ voltageTier: TIER_UEV, baseProduction: 16777216, boostMultiplier: 6, boostFluid: "Ferrocenium Superoxide", modular: true }),
 };
 
 // Builds (and memoizes) the Machine for a given multiblock crafter from its
