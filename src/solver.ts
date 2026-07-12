@@ -1,8 +1,15 @@
 import { Model, Solution } from "./types/javascript-lp-solver.js";
 import { PageModel, RecipeGroupModel, RecipeModel, ProductModel, FlowInformation, LinkAlgorithm, OverclockResult } from './page.js';
-import { Goods, Item, OreDict, Recipe, RecipeIoType, RecipeObject, Repository } from "./repository.js";
+import { Goods, Item, OreDict, Recipe, RecipeInOut, RecipeIoType, RecipeObject, Repository } from "./repository.js";
 import { singleBlockMachine, notImplementedMachine, GetSingleBlockMachine, GetParameter, BuildMachineFromCrafter } from "./machines.js";
 import { voltageTier } from "./utils.js";
+
+// GregTech chanced outputs/inputs get a per-overclock boost: each overclock adds
+// tierChanceBoost to the base chance. Both are stored out of 10000 (read here as
+// 0..1). The effective chance is clamped to [0, 1].
+function BoostedProbability(slot:RecipeInOut, overclockTiers:number):number {
+    return Math.min(1, Math.max(0, slot.probability + slot.tierChanceBoost * overclockTiers));
+}
 
 class LinkCollection {
     output: {[key:string]:{[key:string]:number}} = {};
@@ -167,7 +174,7 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
 
     for (const slot of recipeItems) {
         const goods = slot.goods;
-        let amount = slot.amount * slot.probability;
+        let amount = slot.amount * BoostedProbability(slot, recipeModel.overclockTiers);
         let container = goods instanceof Item && goods.container;
 
         if (slot.type == RecipeIoType.OreDictInput || slot.type == RecipeIoType.FluidOreDictInput) {
@@ -256,7 +263,7 @@ function ApplySolutionRecipe(recipeModel:RecipeModel, solution:Solution):void
             goods = recipeModel.selectedOreDicts[item.goods.id];
 
         var isProduction = item.type == RecipeIoType.FluidOutput || item.type == RecipeIoType.ItemOutput;
-        let amount = item.amount * item.probability * solutionValue;
+        let amount = item.amount * BoostedProbability(item, recipeModel.overclockTiers) * solutionValue;
         let container = goods instanceof Item && goods.container;
         if (container) {
             flow.Add(container.fluid, amount * container.amount, isProduction);

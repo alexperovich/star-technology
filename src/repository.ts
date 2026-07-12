@@ -5,7 +5,7 @@ const charCodeItem = "i".charCodeAt(0);
 const charCodeFluid = "f".charCodeAt(0);
 const charCodeRecipe = "r".charCodeAt(0);
 
-const DATA_VERSION = 6;
+const DATA_VERSION = 7;
 export class Repository
 {
     static current:Repository;
@@ -564,6 +564,7 @@ export type RecipeInOut =
     slot: number;
     amount: number;
     probability: number;
+    tierChanceBoost: number;
 }
 
 const RecipeIoTypePrototypes:IMemMappedObjectPrototype<RecipeObject>[] = [Item, OreDict, Fluid, OreDict, Item, Fluid];
@@ -579,7 +580,7 @@ export class Recipe extends SearchableObject
     private ComputeItems():RecipeInOut[]
     {
         var slice = this.GetSlice(5);
-        var elements = slice.length / 5;
+        var elements = slice.length / 6;
         var result:RecipeInOut[] = new Array(elements);
         var index = 0;
         for(var i=0; i<elements; i++) {
@@ -592,6 +593,7 @@ export class Recipe extends SearchableObject
                 slot: slice[index++],
                 amount: slice[index++],
                 probability: slice[index++] / 10000,
+                tierChanceBoost: slice[index++] / 10000,
             }
         }
         return result;
@@ -600,13 +602,13 @@ export class Recipe extends SearchableObject
     MatchSearchText(query: SearchQuery): boolean 
     {
         var slice = this.GetSlice(5);
-        var count = slice.length / 5;
+        var count = slice.length / 6;
         for (var i=0; i<count; i++) 
         {
-            var pointer = slice[i*5+1];
+            var pointer = slice[i*6+1];
             if (!this.repository.ObjectMatchQueryBits(query, pointer))
                 continue;
-            var objType = RecipeIoTypePrototypes[slice[i*5]];
+            var objType = RecipeIoTypePrototypes[slice[i*6]];
             var obj = this.repository.GetObject<RecipeObject>(pointer, objType);
             if (obj.MatchSearchText(query))
                 return true;

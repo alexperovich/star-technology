@@ -238,6 +238,7 @@ export function getChoiceDefaultDescriptors():ChoiceDescriptor[] {
         { key: "boosting", description: "Turbine Boosting", options: ["None", "Passive", "Active"] },
         { key: "combustionBoosting", description: "Combustion Boosting", options: ["None", "Boosting"] },
         { key: "cooling", description: "Combustion Frame Cooling", options: CombustionFrameCooling.map((c) => c.label) },
+        { key: "solarCooling", description: "Solar Array Cooling", options: ["Off", "On"] },
     ];
 }
 
@@ -767,9 +768,68 @@ function makeCombustionMachine(spec:CombustionSpec):Machine {
     };
 }
 
+// ============================================================================
+// Solar panels & arrays (power generators)
+// ----------------------------------------------------------------------------
+// A solar panel/array holds a fixed number of solar cells (its parallel count,
+// read from gtceu:multiblock_info into the `solarCellCount` item metadata). Each
+// cell outputs its rated EU/t while exposed to the sun, but exposure heats the
+// cell (+0.2K, or +0.18K with array cooling, times the cell's heating modifier)
+// while idling cools it (-0.1K). Kept heat-neutral, a cell is productive only
+// s = 1/(1 + heatBuildup*hm/0.1) of the time, so the sustained output is scaled
+// by that duty cycle. The synthesized recipe carries the cell's productive
+// lifetime as its duration and the heating modifier as `solar_heating_modifier`;
+// `speed` = s stretches it to the real (heat-neutral) lifetime while `power`
+// applies the panel's voltage multiplier. Cooling (arrays only) both raises the
+// multiplier and, by lowering heat buildup, the duty cycle.
+// ============================================================================
+type SolarSpec = {
+    voltMult: number;           // base output multiplier (uncooled)
+    voltMultCooled?: number;    // output multiplier with De-Ionized Water cooling (arrays)
+    isArray: boolean;           // arrays support a cooling toggle
+};
+
+function makeSolarMachine(crafter:Item, spec:SolarSpec):Machine {
+    const cellCount = Math.max(1, crafter.MetadataByKey("solarCellCount", 1));
+
+    const isCooled = (selected:{[key:string]:number}) => spec.isArray && (selected.solarCooling ?? 0) === 1;
+
+    // Productive fraction of time when the array is kept heat-neutral.
+    const dutyCycle = (recipe:RecipeModel, selected:{[key:string]:number}) => {
+        const hm = recipe.recipe?.gtRecipe.MetadataByKey("solar_heating_modifier", 1) ?? 1;
+        const heatBuildup = isCooled(selected) ? 0.18 : 0.2;
+        return 1 / (1 + heatBuildup * hm / 0.1);
+    };
+
+    const speed:MachineCoefficient<number> = (recipe, selected) => dutyCycle(recipe, selected);
+
+    const power:MachineCoefficient<number> = (recipe, selected) => {
+        const voltMult = isCooled(selected) ? (spec.voltMultCooled ?? spec.voltMult) : spec.voltMult;
+        return voltMult * dutyCycle(recipe, selected);
+    };
+
+    const choices:{[key:string]:Choice} = {};
+    if (spec.isArray)
+        choices.solarCooling = { description: "De-Ionized Water Cooling", choices: ["Off", "On"] };
+
+    const info:MachineCoefficient<string> = (recipe, selected) =>
+        `Assumes sun exposure is regulated to keep the ${spec.isArray ? "array" : "panel"} heat-neutral, so the cells idle part of the time; ` +
+        `output is the sustained average (${(dutyCycle(recipe, selected) * 100).toFixed(1)}% duty cycle).`;
+
+    return {
+        choices,
+        overclocker: NullOverclocker.instance,
+        speed,
+        power,
+        parallels: cellCount,
+        ignoreParallelLimit: true,
+        info,
+    };
+}
+
 // Crafters whose machine cannot be derived from modifiers. Keyed by the binary
 // item id (i:<mod>:<internalName>:<damage>).
-const customMachineRegistry:{[crafterId:string]: () => Machine} = {
+const customMachineRegistry:{[crafterId:string]: (crafter:Item) => Machine} = {
     "i:gtceu:gas_large_turbine:0": () => makeTurbineMachine({ controllerTier: 4, baseProduction: 4096, parallelBonus: 1 }),
     "i:gtceu:plasma_large_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 1 }),
     "i:gtceu:supreme_plasma_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 6, boostTable: [0.9, 1.25, 2] }),
@@ -780,6 +840,11 @@ const customMachineRegistry:{[crafterId:string]: () => Machine} = {
     "i:start_core:zpm_combustion_module:0": () => makeCombustionMachine({ voltageTier: TIER_ZPM, baseProduction: 131072, boostMultiplier: 6, boostFluid: "Red Fuming Nitric Acid", modular: true }),
     "i:start_core:uv_combustion_module:0": () => makeCombustionMachine({ voltageTier: TIER_UV, baseProduction: 1048576, boostMultiplier: 4, boostFluid: "Dioxygen Difluoride", modular: true }),
     "i:start_core:uev_combustion_module:0": () => makeCombustionMachine({ voltageTier: TIER_UEV, baseProduction: 16777216, boostMultiplier: 6, boostFluid: "Ferrocenium Superoxide", modular: true }),
+    "i:start_core:ev_solar_panel:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.0, isArray: false }),
+    "i:start_core:iv_solar_panel:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.05, isArray: false }),
+    "i:start_core:luv_solar_panel:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.1, isArray: false }),
+    "i:start_core:uv_solar_array:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.2, voltMultCooled: 1.328, isArray: true }),
+    "i:start_core:uhv_solar_array:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.25, voltMultCooled: 1.45, isArray: true }),
 };
 
 // Builds (and memoizes) the Machine for a given multiblock crafter from its
@@ -789,7 +854,7 @@ export function BuildMachineFromCrafter(crafter:Item, recipeType:RecipeType):Mac
     if (cached)
         return cached;
     const custom = customMachineRegistry[crafter.id];
-    const machine = custom ? custom() : ComposeMachineFromModifiers(crafter, recipeType);
+    const machine = custom ? custom(crafter) : ComposeMachineFromModifiers(crafter, recipeType);
     machineCache[crafter.id] = machine;
     return machine;
 }

@@ -19,7 +19,7 @@ namespace Source
         private readonly List<int> rawData = new List<int>();
         private readonly string[] serviceItems = new[] { "Quest Book", "Anvil" };
         
-        private const int DATA_VERSION = 6;
+        private const int DATA_VERSION = 7;
 
         public MemoryMappedPackConverter(Repository repository)
         {
@@ -159,35 +159,36 @@ namespace Source
         private object[] PackRecipeInOut(Recipe recipe)
         {
             var totalIO = recipe.fluidInputs.Length + recipe.fluidOutputs.Length + recipe.itemInputs.Length + recipe.itemOutputs.Length + recipe.oreDictInputs.Length;
-            var arr = new object[totalIO * 5];
+            var arr = new object[totalIO * 6];
             var index = 0;
             foreach (var input in recipe.itemInputs)
-                WriteRecipeSlot(arr, ref index, IoItemInput, input.goods, input.slot, input.amount, input.probability);
+                WriteRecipeSlot(arr, ref index, IoItemInput, input.goods, input.slot, input.amount, input.probability, input.tierChanceBoost);
             foreach (var input in recipe.oreDictInputs)
                 if (!IsFluidOreDict(input.goods))
-                    WriteRecipeSlot(arr, ref index, IoOreDictInput, input.goods, input.slot, input.amount, input.probability);
+                    WriteRecipeSlot(arr, ref index, IoOreDictInput, input.goods, input.slot, input.amount, input.probability, input.tierChanceBoost);
             foreach (var input in recipe.fluidInputs)
-                WriteRecipeSlot(arr, ref index, IoFluidInput, input.goods, input.slot, input.amount, input.probability);
+                WriteRecipeSlot(arr, ref index, IoFluidInput, input.goods, input.slot, input.amount, input.probability, input.tierChanceBoost);
             foreach (var input in recipe.oreDictInputs)
                 if (IsFluidOreDict(input.goods))
-                    WriteRecipeSlot(arr, ref index, IoFluidOreDictInput, input.goods, input.slot, input.amount, input.probability);
+                    WriteRecipeSlot(arr, ref index, IoFluidOreDictInput, input.goods, input.slot, input.amount, input.probability, input.tierChanceBoost);
             foreach (var output in recipe.itemOutputs)
-                WriteRecipeSlot(arr, ref index, IoItemOutput, output.goods, output.slot, output.amount, output.probability);
+                WriteRecipeSlot(arr, ref index, IoItemOutput, output.goods, output.slot, output.amount, output.probability, output.tierChanceBoost);
             foreach (var output in recipe.fluidOutputs)
-                WriteRecipeSlot(arr, ref index, IoFluidOutput, output.goods, output.slot, output.amount, output.probability);
+                WriteRecipeSlot(arr, ref index, IoFluidOutput, output.goods, output.slot, output.amount, output.probability, output.tierChanceBoost);
             return arr;
         }
 
         private static bool IsFluidOreDict(OreDict ore)
             => ore.variants.Length > 0 && ore.variants[0] is Fluid;
 
-        private void WriteRecipeSlot(object[] arr, ref int index, int ioType, object goods, int slot, int amount, int probability)
+        private void WriteRecipeSlot(object[] arr, ref int index, int ioType, object goods, int slot, int amount, int probability, int tierChanceBoost)
         {
             arr[index++] = ioType;
             arr[index++] = goods;
             arr[index++] = slot;
             arr[index++] = amount;
             arr[index++] = probability;
+            arr[index++] = tierChanceBoost;
         }
 
         private void Write(Recipe recipe)

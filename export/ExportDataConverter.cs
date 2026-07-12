@@ -78,6 +78,7 @@ namespace Source
             public int count { get; set; }
             public int amount { get; set; }
             public int? probability { get; set; }
+            public int? tierChanceBoost { get; set; }
         }
 
         private class RecipeJson
@@ -121,6 +122,7 @@ namespace Source
             var oreDictByTag = new Dictionary<string, OreDict>();
             var fluidOreDictByTag = new Dictionary<string, OreDict>();
             var missingRefs = new HashSet<string>();
+            var solarCellCounts = new Dictionary<string, int>();
 
             // --- Items ---
             foreach (var (key, entry) in ReadObject<GoodsEntryJson>(Path.Combine(dataPath, "items.json")))
@@ -237,6 +239,8 @@ namespace Source
             {
                 foreach (var rjRaw in JsonSerializer.Deserialize<List<RecipeJson>>(File.ReadAllText(file), StrictOptions))
                 {
+                    if (rjRaw.type == "gtceu:multiblock_info")
+                        CaptureSolarCellCount(rjRaw, solarCellCounts);
                     if (IgnoredRecipeTypes.Contains(rjRaw.type))
                         continue;
 
@@ -267,15 +271,15 @@ namespace Source
                                 if (single == null && ore == null)
                                     skip = true;
                                 else if (ore != null)
-                                    oreInputs.Add(new RecipeInput<OreDict> { goods = ore, amount = stack.count, slot = slot, probability = Prob(stack.probability) });
+                                    oreInputs.Add(new RecipeInput<OreDict> { goods = ore, amount = stack.count, slot = slot, probability = Prob(stack.probability), tierChanceBoost = TierBoost(stack.tierChanceBoost) });
                                 else
-                                    itemInputs.Add(new RecipeInput<Item> { goods = single, amount = stack.count, slot = slot, probability = Prob(stack.probability) });
+                                    itemInputs.Add(new RecipeInput<Item> { goods = single, amount = stack.count, slot = slot, probability = Prob(stack.probability), tierChanceBoost = TierBoost(stack.tierChanceBoost) });
                             }
                             else
                             {
                                 var it = ResolveItem(stack.key, items, missingRefs);
                                 if (it == null) skip = true;
-                                else { it.touched = true; itemInputs.Add(new RecipeInput<Item> { goods = it, amount = stack.count, slot = slot, probability = Prob(stack.probability) }); }
+                                else { it.touched = true; itemInputs.Add(new RecipeInput<Item> { goods = it, amount = stack.count, slot = slot, probability = Prob(stack.probability), tierChanceBoost = TierBoost(stack.tierChanceBoost) }); }
                             }
                         }
 
@@ -288,15 +292,15 @@ namespace Source
                                 if (single == null && ore == null)
                                     skip = true;
                                 else if (ore != null)
-                                    oreInputs.Add(new RecipeInput<OreDict> { goods = ore, amount = stack.amount, slot = slot, probability = Prob(stack.probability) });
+                                    oreInputs.Add(new RecipeInput<OreDict> { goods = ore, amount = stack.amount, slot = slot, probability = Prob(stack.probability), tierChanceBoost = TierBoost(stack.tierChanceBoost) });
                                 else
-                                    fluidInputs.Add(new RecipeInput<Fluid> { goods = single, amount = stack.amount, slot = slot, probability = Prob(stack.probability) });
+                                    fluidInputs.Add(new RecipeInput<Fluid> { goods = single, amount = stack.amount, slot = slot, probability = Prob(stack.probability), tierChanceBoost = TierBoost(stack.tierChanceBoost) });
                             }
                             else
                             {
                                 var fl = ResolveFluid(stack.key, fluids, missingRefs);
                                 if (fl == null) skip = true;
-                                else fluidInputs.Add(new RecipeInput<Fluid> { goods = fl, amount = stack.amount, slot = slot, probability = Prob(stack.probability) });
+                                else fluidInputs.Add(new RecipeInput<Fluid> { goods = fl, amount = stack.amount, slot = slot, probability = Prob(stack.probability), tierChanceBoost = TierBoost(stack.tierChanceBoost) });
                             }
                         }
 
@@ -306,14 +310,14 @@ namespace Source
                                 throw new InvalidDataException($"Recipe '{rj.id}' has a tag '{stack.key}' as an item output, which is not supported");
                             var it = ResolveItem(stack.key, items, missingRefs);
                             if (it == null) skip = true;
-                            else { it.touched = true; itemOutputs.Add(new RecipeProduct<Item> { goods = it, amount = stack.count, slot = int.Parse(slotStr), probability = Prob(stack.probability) }); }
+                            else { it.touched = true; itemOutputs.Add(new RecipeProduct<Item> { goods = it, amount = stack.count, slot = int.Parse(slotStr), probability = Prob(stack.probability), tierChanceBoost = TierBoost(stack.tierChanceBoost) }); }
                         }
 
                         foreach (var (slotStr, stack) in rj.fluidOutputs ?? Empty)
                         {
                             var fl = ResolveFluid(stack.key, fluids, missingRefs);
                             if (fl == null) skip = true;
-                            else fluidOutputs.Add(new RecipeProduct<Fluid> { goods = fl, amount = stack.amount, slot = int.Parse(slotStr), probability = Prob(stack.probability) });
+                            else fluidOutputs.Add(new RecipeProduct<Fluid> { goods = fl, amount = stack.amount, slot = int.Parse(slotStr), probability = Prob(stack.probability), tierChanceBoost = TierBoost(stack.tierChanceBoost) });
                         }
 
                         if (skip)
@@ -362,6 +366,9 @@ namespace Source
             if (unresolved.Count > 0)
                 throw new InvalidDataException($"Unresolved item/fluid references in recipes ({unresolved.Count}):\n" +
                     string.Join("\n", unresolved.Take(50)) + (unresolved.Count > 50 ? "\n..." : ""));
+
+            // --- Synthesized Solar Power generators ---
+            GenerateSolarPower(items, recipeTypes, recipes, solarCellCounts);
 
             // --- Icons: all fluids first, then touched items (iconId = index into icons list) ---
             foreach (var fluid in fluids.Values)
@@ -630,6 +637,124 @@ namespace Source
             }
         }
 
+        #region Solar Power generators
+
+        // Solar cells output EU while exposed to the sun and take 1 durability damage per
+        // productive cycle; after SolarCellDurability cycles the cell breaks. VoltageOut and the
+        // heating modifier are fixed game constants (shown on each cell's tooltip). The "Solar
+        // Power" recipe type is fully synthesized by the calculator, so they are listed here
+        // rather than parsed. Each cell's VoltageOut tier is one step below its name tier.
+        private static readonly (string id, int voltageOut, double heatingModifier)[] SolarCells =
+        {
+            ("start_core:ev_solar_cell",  512,    1.00),
+            ("start_core:iv_solar_cell",  2048,   0.95),
+            ("start_core:luv_solar_cell", 8192,   0.90),
+            ("start_core:zpm_solar_cell", 32768,  0.85),
+            ("start_core:uv_solar_cell",  131072, 0.80),
+            ("start_core:uhv_solar_cell", 524288, 0.75),
+        };
+
+        // The solar panel/array multiblocks that act as crafters for the Solar Power type.
+        private static readonly string[] SolarCrafters =
+        {
+            "start_core:ev_solar_panel",
+            "start_core:iv_solar_panel",
+            "start_core:luv_solar_panel",
+            "start_core:uv_solar_array",
+            "start_core:uhv_solar_array",
+        };
+
+        private const int SolarCellDurability = 1024;   // productive cycles before a cell breaks
+        private const int SolarCycleTicks = 120;        // ticks per productive cycle (6 seconds)
+
+        // Records how many solar cells a solar panel/array structure contains, read from its
+        // gtceu:multiblock_info entry (which is otherwise excluded from the export). The count is
+        // used as the multiblock's fixed parallel count in machines.ts.
+        private static void CaptureSolarCellCount(RecipeJson recipe, Dictionary<string, int> solarCellCounts)
+        {
+            if (recipe.id == null || recipe.itemInputs == null)
+                return;
+            if (!recipe.id.EndsWith("_solar_panel") && !recipe.id.EndsWith("_solar_array"))
+                return;
+            foreach (var stack in recipe.itemInputs.Values)
+            {
+                if (stack.key != null && stack.key.EndsWith("_solar_cell"))
+                {
+                    solarCellCounts[recipe.id] = stack.count;
+                    return;
+                }
+            }
+        }
+
+        // Synthesizes the "Solar Power" recipe type: each solar panel/array is a generator that
+        // consumes one solar cell and outputs EU (negative voltage). A cell lasts its durability
+        // in productive cycles, so the recipe duration is that productive lifetime; machines.ts
+        // stretches it to the heat-neutral wall-clock time and scales the output by the panel's
+        // voltage multiplier and the number of cells (the parallel count).
+        private static void GenerateSolarPower(
+            Dictionary<string, Item> items,
+            List<RecipeType> recipeTypes,
+            List<Recipe> recipes,
+            Dictionary<string, int> solarCellCounts)
+        {
+            var type = new RecipeType
+            {
+                name = "Solar Power",
+                category = "start_core",
+                itemInputs = new RecipeDimensions(1, 1),
+                itemOutputs = new RecipeDimensions(0, 0),
+                fluidInputs = new RecipeDimensions(0, 0),
+                fluidOutputs = new RecipeDimensions(0, 0),
+                shapeless = false,
+            };
+
+            foreach (var crafterId in SolarCrafters)
+            {
+                if (!items.TryGetValue(crafterId, out var crafter))
+                    continue;
+                crafter.touched = true;
+                if (solarCellCounts.TryGetValue(crafterId, out var cellCount) && cellCount > 0)
+                    crafter.metadata.Add(new ItemMetadata { key = "solarCellCount", value = cellCount });
+                if (!type.crafters.Contains(crafter))
+                    type.crafters.Add(crafter);
+            }
+
+            if (type.crafters.Count == 0)
+                return;
+
+            recipeTypes.Add(type);
+
+            foreach (var (cellId, voltageOut, heatingModifier) in SolarCells)
+            {
+                if (!items.TryGetValue(cellId, out var cell))
+                    continue;
+                cell.touched = true;
+                recipes.Add(new Recipe
+                {
+                    id = "r:startcalc:solar_power/" + InternalName(cellId),
+                    recipeType = type,
+                    itemInputs = new[]
+                    {
+                        new RecipeInput<Item> { goods = cell, amount = 1, slot = 0, probability = Prob(null), tierChanceBoost = 0 },
+                    },
+                    oreDictInputs = Array.Empty<RecipeInput<OreDict>>(),
+                    fluidInputs = Array.Empty<RecipeInput<Fluid>>(),
+                    itemOutputs = Array.Empty<RecipeProduct<Item>>(),
+                    fluidOutputs = Array.Empty<RecipeProduct<Fluid>>(),
+                    gtInfo = new GtRecipeInfo
+                    {
+                        voltage = -voltageOut,
+                        durationTicks = SolarCellDurability * SolarCycleTicks,
+                        amperage = 1,
+                        voltageTier = VoltageTiers.GetVoltageTierFromRaw(voltageOut),
+                        metadata = new[] { new RecipeMetadata { key = "solar_heating_modifier", value = heatingModifier } },
+                    },
+                });
+            }
+        }
+
+        #endregion
+
         #region Hardcoded recipe transforms
 
         // gtceu:bacterial_hydrocarbon_harvester:
@@ -799,6 +924,9 @@ namespace Source
 
         private static int Prob(int? probability)
             => probability ?? 10000;
+
+        private static int TierBoost(int? tierChanceBoost)
+            => tierChanceBoost ?? 0;
 
         private static RecipeDimensions Dim(int[] dims)
             => dims is { Length: >= 2 } ? new RecipeDimensions(dims[0], dims[1]) : new RecipeDimensions(0, 0);

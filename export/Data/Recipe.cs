@@ -30,6 +30,7 @@ namespace Source.Data
         public int amount;
         public T goods;
         public int probability;
+        public int tierChanceBoost;
     }
     
     [Serializable]
@@ -39,5 +40,6 @@ namespace Source.Data
         public int amount;
         public T goods;
         public int probability;
+        public int tierChanceBoost;
     }
 }
