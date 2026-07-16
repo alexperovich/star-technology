@@ -626,19 +626,33 @@ function ComposeMachineFromModifiers(crafter:Item, _recipeType:RecipeType):Machi
 //
 // GT formulas (RotorHolderPartMachine / LargeTurbineMachine):
 //   tierDiff        = holderTier - controllerTier   (clamped >= 0)
-//   totalEfficiency = max(100, rotorEfficiency% * 1.1^tierDiff)
+//   totalEfficiency = max(100, rotorEfficiency% * (1 + 0.1 * tierDiff))
 //   totalPower      = rotorPower% * 2^tierDiff
 //   maxVoltage      = baseProduction * totalPower/100 * parallelBonus
-// The net EU produced per unit of fuel scales with totalEfficiency (and the
-// boost bonus); maxVoltage only sets how much fuel a single turbine burns, i.e.
-// the number of turbines needed (parallels), not the fuel<->EU balance.
+// Each rotor holder tier above the controller adds a flat +10% efficiency: the
+// holder bonuses are summed and then multiplied onto the rotor efficiency, e.g.
+// a 160% rotor two tiers up is 160% * (1 + 0.2) = 192%, a 320% rotor four tiers
+// up is 320% * (1 + 0.4) = 448%.
+//
+// A turbine's EU/t output is maxVoltage (times the boost bonus, if any) and is
+// INDEPENDENT of rotor efficiency. maxVoltage/recipeVoltage, rounded UP, is how
+// many fuel recipes one turbine runs in parallel: the turbine consumes fuel for
+// all of them but still only outputs the unrounded maxVoltage worth of EU/t (the
+// fractional last parallel's fuel makes no extra power), so the power modifier
+// scales the per-recipe output down by maxVoltage/(parallels*recipeVoltage).
+// Rotor efficiency is fuel economy: it stretches the recipe DURATION by
+// totalEfficiency (the game truncates that to a whole tick), making the same fuel
+// - and the de-energized output (e.g. plasma -> gas) - burn slower at an
+// unchanged EU/t. This is modelled as a speed factor of 100/totalEfficiency so
+// the solver's own duration truncation reproduces the exact in-game fuel rate,
+// rather than scaling the recipe amounts.
 // ============================================================================
 
 type TurbineSpec = {
     controllerTier: number;     // tier the rotor holder is compared against
     baseProduction: number;     // BASE_EU_OUTPUT = V[controllerTier] * 2
-    parallelBonus: number;      // boosted turbines burn more fuel per turbine
-    boostTable?: number[];      // EU-per-fuel multiplier by [None, Passive, Active]
+    parallelBonus: number;      // turbine count multiplier (more parallel recipes)
+    boostTable?: number[];      // EU/t output multiplier by [None, Passive, Active]
 };
 
 function makeTurbineMachine(spec:TurbineSpec):Machine {
@@ -656,36 +670,59 @@ function makeTurbineMachine(spec:TurbineSpec):Machine {
         return Math.max(0, (holder?.tier ?? spec.controllerTier) - spec.controllerTier);
     };
     const rotorOf = (selected:{[key:string]:number}) => TurbineRotors[selected.turbineRotor] ?? TurbineRotors[0];
-
-    const power:MachineCoefficient<number> = (_recipe, selected) => {
-        const tierDiff = tierDiffOf(selected);
+    const totalEfficiencyOf = (selected:{[key:string]:number}) => {
         const rotor = rotorOf(selected);
-        const totalEfficiency = Math.max(100, (rotor?.efficiency ?? 100) * Math.pow(1.1, tierDiff));
-        let bonus = 1;
-        if (spec.boostTable)
-            bonus = spec.boostTable[selected.boosting ?? 0] ?? spec.boostTable[0];
-        return totalEfficiency / 100 * bonus;
+        // Each holder tier above the controller adds a flat +10% that is summed and
+        // then multiplied onto the rotor efficiency (NOT compounded per tier).
+        return Math.max(100, (rotor?.efficiency ?? 100) * (1 + 0.1 * tierDiffOf(selected)));
     };
 
+    // maxVoltage is the turbine's rated EU/t output (before the boost bonus).
+    const maxVoltageOf = (selected:{[key:string]:number}) => {
+        const totalPower = (rotorOf(selected)?.power ?? 100) * Math.pow(2, tierDiffOf(selected));
+        return spec.baseProduction * totalPower / 100 * spec.parallelBonus;
+    };
+
+    // Rotor efficiency does NOT raise the EU/t output (it lowers fuel use via the
+    // speed modifier below); only the boost bonus (lubricant / coolant on the
+    // Supreme/Nyinsane variants) multiplies the output. The turbine burns fuel for
+    // the full (rounded-up) parallel count but only outputs the unrounded
+    // maxVoltage, so scale the per-recipe output down by the fractional last
+    // parallel: maxVoltage/(parallels*recipeVoltage). This caps EU/t at maxVoltage
+    // without changing the fuel, which stays tied to the ceil'd parallel count.
+    const power:MachineCoefficient<number> = (recipe, selected) => {
+        const boost = spec.boostTable ? (spec.boostTable[selected.boosting ?? 0] ?? spec.boostTable[0]) : 1;
+        const recipeVoltage = Math.abs(recipe.recipe?.gtRecipe.voltage ?? 0);
+        if (recipeVoltage <= 0)
+            return boost;
+        const maxVoltage = maxVoltageOf(selected);
+        const parallels = Math.max(1, Math.ceil(maxVoltage / recipeVoltage));
+        return boost * maxVoltage / (parallels * recipeVoltage);
+    };
+
+    // Rotor efficiency is fuel economy: a higher efficiency makes the same fuel
+    // burn slower, i.e. it stretches the recipe duration. Modelling it as a speed
+    // factor of 100/totalEfficiency lengthens the recipe (the solver truncates the
+    // stretched duration to a whole tick, exactly as the game does), which lowers
+    // the fuel throughput - and the de-energized output (e.g. plasma -> gas) with
+    // it - while leaving the EU/t output (voltage) untouched.
+    const speed:MachineCoefficient<number> = (_recipe, selected) => 100 / totalEfficiencyOf(selected);
+
     const parallels:MachineCoefficient<number> = (recipe, selected) => {
-        const tierDiff = tierDiffOf(selected);
-        const rotor = rotorOf(selected);
-        const totalPower = (rotor?.power ?? 100) * Math.pow(2, tierDiff);
-        const maxVoltage = spec.baseProduction * totalPower / 100 * spec.parallelBonus;
         const recipeVoltage = Math.abs(recipe.recipe?.gtRecipe.voltage ?? 0);
         if (recipeVoltage <= 0)
             return 1;
-        return Math.max(1, Math.ceil(maxVoltage / recipeVoltage));
+        return Math.max(1, Math.ceil(maxVoltageOf(selected) / recipeVoltage));
     };
 
     const info = spec.boostTable
-        ? "Production scales with the chosen rotor holder tier and rotor material. Boosting fuel is not modelled."
-        : "Production scales with the chosen rotor holder tier and rotor material.";
+        ? "EU/t output scales with the rotor holder tier, rotor power and boost; rotor efficiency instead lowers fuel use (fuel burns slower at the same EU/t). Boosting fluid is not modelled."
+        : "EU/t output scales with the rotor holder tier and rotor power; rotor efficiency instead lowers fuel use (fuel burns slower at the same EU/t).";
 
     return {
         choices,
         overclocker: NullOverclocker.instance,
-        speed: 1,
+        speed,
         power,
         parallels,
         ignoreParallelLimit: true,
