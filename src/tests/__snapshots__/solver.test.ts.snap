@@ -436,12 +436,12 @@ exports[`Solver Processing Overclock Multiblocks 2.gtnh should process without e
     "recipesPerMinute": 0,
   },
   {
-    "crafterCount": 0.9999999997166666,
+    "crafterCount": 1.0000000000375,
     "id": "r:start:nuclear_fission/mox238_fuel_rod",
-    "overclockFactor": 1,
-    "overclockName": "",
+    "overclockFactor": 4,
+    "overclockName": "Can't overclock",
     "powerFactor": 1,
-    "recipesPerMinute": 15.58441558,
+    "recipesPerMinute": 62.33766234,
   },
   {
     "crafterCount": 1,

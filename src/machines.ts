@@ -864,9 +864,34 @@ function makeSolarMachine(crafter:Item, spec:SolarSpec):Machine {
     };
 }
 
+// ============================================================================
+// Parallel-only machines (parallel hatches, no overclocking)
+// ----------------------------------------------------------------------------
+// Some multiblocks (e.g. the Nuclear Reactor) support parallel hatches but do
+// not overclock at all. The modifier engine can't express this: a crafter that
+// only carries the `parallel_hatch` modifier falls back to the default normal
+// overclocker, which would wrongly overclock the recipe at higher voltage tiers.
+// This custom machine reproduces the parallel-hatch behaviour with overclocking
+// disabled.
+// ============================================================================
+function makeParallelOnlyMachine():Machine {
+    return {
+        choices: {
+            parallels: makeParallelHatchChoice(ParallelHatchTiers),
+        },
+        overclocker: NullOverclocker.instance,
+        speed: 1,
+        power: 1,
+        parallels: (_recipe, choices) => parallelHatchCount(ParallelHatchTiers, choices.parallels),
+        ignoreParallelLimit: true,
+    };
+}
+
 // Crafters whose machine cannot be derived from modifiers. Keyed by the binary
 // item id (i:<mod>:<internalName>:<damage>).
 const customMachineRegistry:{[crafterId:string]: (crafter:Item) => Machine} = {
+    // Nuclear Reactor: supports parallel hatches only, never overclocks.
+    "i:gtceu:nuclear_reactor:0": () => makeParallelOnlyMachine(),
     "i:gtceu:gas_large_turbine:0": () => makeTurbineMachine({ controllerTier: 4, baseProduction: 4096, parallelBonus: 1 }),
     "i:gtceu:plasma_large_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 1 }),
     "i:gtceu:supreme_plasma_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 6, boostTable: [0.9, 1.25, 2] }),
