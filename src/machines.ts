@@ -113,6 +113,7 @@ export type Machine = {
     enforceChoiceConstraints?: (recipe:RecipeModel, choices:{[key:string]:number}) => void;
     overclocker: MachineCoefficient<Overclocker>;
     speed: MachineCoefficient<number>;
+    durationModifiers?: MachineCoefficient<number>[];
     power: MachineCoefficient<number>;
     parallels: MachineCoefficient<number>;
     recipe?: (recipe:RecipeModel, choices:{[key:string]:number}, items:RecipeInOut[]) => RecipeInOut[];
@@ -357,6 +358,7 @@ function ebfPower(recipe:RecipeModel, choices:{[key:string]:number}):number {
 // Mutable accumulator describing the machine being assembled from modifiers.
 type MachineBuilder = {
     speedFactors: MachineCoefficient<number>[];
+    durationModifiers: MachineCoefficient<number>[];
     powerFactors: MachineCoefficient<number>[];
     parallelFactors: MachineCoefficient<number>[];
     overclocker?: MachineCoefficient<Overclocker>;
@@ -433,7 +435,7 @@ const modifierRegistry: {[id:string]: ModifierImpl} = {
     // --- Bulk / throughput multipliers ---
     "throughput_boosting": builder => {
         builder.parallelFactors.push(4);
-        builder.speedFactors.push(1 / 1.6);
+        builder.durationModifiers.push(1.6);
         builder.powerFactors.push(0.95);
         // The 4 parallels are free: divide the per-recipe power so total EU does
         // not grow with the parallel count.
@@ -441,7 +443,7 @@ const modifierRegistry: {[id:string]: ModifierImpl} = {
     },
     "bulk_processing": builder => {
         builder.parallelFactors.push(16);
-        builder.speedFactors.push(1 / 13);
+        builder.durationModifiers.push(13);
     },
 
     // --- Coil-based specialised overclocks ---
@@ -454,7 +456,6 @@ const modifierRegistry: {[id:string]: ModifierImpl} = {
     },
     "cracker_oc": builder => {
         builder.overclocker = StandardOverclocker.onlyNormal();
-        builder.subtick = true;
         addCoilChoice(builder);
         builder.powerFactors.push((_recipe, choices) => {
             const tier = choices.coilTier;
@@ -466,19 +467,17 @@ const modifierRegistry: {[id:string]: ModifierImpl} = {
     },
     "pyrolyse_oven_oc": builder => {
         builder.overclocker = StandardOverclocker.onlyNormal();
-        builder.subtick = true;
         addCoilChoice(builder);
-        builder.speedFactors.push((_recipe, choices) => {
+        const durationModifier = (_recipe:RecipeModel, choices:{[key:string]:number}) => {
             const tier = choices.coilTier;
-            const durationMultiplier = tier == 0 ? (4 / 3) : (2 / (tier + 1));
-            return 1 / durationMultiplier;
-        });
+            return tier == 0 ? (4 / 3) : (2 / (tier + 1));
+        };
+        builder.durationModifiers.push(durationModifier);
     },
     "chemical_reactor_oc": builder => {
         builder.overclocker = StandardOverclocker.onlyNormal();
-        builder.subtick = true;
         addCoilChoice(builder);
-        builder.speedFactors.push((_recipe, choices) => 0.75 + choices.coilTier * 0.25);
+        builder.durationModifiers.push((_recipe, choices) => 1 / (0.75 + choices.coilTier * 0.25));
         builder.powerFactors.push((_recipe, choices) => 1 - choices.coilTier * 0.05);
     },
     "multi_smellter_parallel": builder => {
@@ -562,6 +561,7 @@ function ComposeMachineFromModifiers(crafter:Item, _recipeType:RecipeType):Machi
 
     const builder:MachineBuilder = {
         speedFactors: [],
+        durationModifiers: [],
         powerFactors: [],
         parallelFactors: [],
         overclocker: undefined,
@@ -599,6 +599,8 @@ function ComposeMachineFromModifiers(crafter:Item, _recipeType:RecipeType):Machi
         power: multiplyFactors(builder.powerFactors),
         parallels: multiplyFactors(builder.parallelFactors),
     };
+    if (builder.durationModifiers.length > 0)
+        machine.durationModifiers = builder.durationModifiers;
     if (builder.subtick)
         machine.subtick = true;
     if (Object.keys(builder.choices).length > 0)

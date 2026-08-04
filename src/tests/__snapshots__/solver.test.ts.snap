@@ -37,9 +37,9 @@ exports[`Solver Processing Coil & ABS Multiblocks 2.gtnh should process without 
   {
     "crafterCount": 1.0000000001875,
     "id": "r:gtceu:large_chemical_reactor/qbit_cpu_wafer_quantum_eye",
-    "overclockFactor": 9.230769230769232,
+    "overclockFactor": 9.23076923076923,
     "overclockName": "",
-    "powerFactor": 6.586666666666666,
+    "powerFactor": 6.586666666666667,
     "recipesPerMinute": 12.30769231,
   },
   {
@@ -430,9 +430,9 @@ exports[`Solver Processing Overclock Multiblocks 2.gtnh should process without e
   {
     "crafterCount": 0,
     "id": "r:start:draco_infusion/chalyblux_dust",
-    "overclockFactor": 10,
+    "overclockFactor": 10.008264462809917,
     "overclockName": "OC x2",
-    "powerFactor": 1.52,
+    "powerFactor": 1.5187448389760527,
     "recipesPerMinute": 0,
   },
   {
@@ -485,7 +485,7 @@ exports[`Solver Processing Overclock Multiblocks.gtnh should process without err
     "id": "r:start:hellforge/mythrotight_carbide_steel",
     "overclockFactor": 10.000717102904266,
     "overclockName": "OC x2",
-    "powerFactor": 1.519891008174387,
+    "powerFactor": 1.5198910081743868,
     "recipesPerMinute": 0.86052349,
   },
   {

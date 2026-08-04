@@ -148,7 +148,12 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         // In case of subtick processing we assume no rounding is taking place, which is a good approximation for now.
         // Some machines round after parallels, for example Advanced Assembly Line
         const durationTicksForRounding = machineInfo.roundAfterParallels ? (gtRecipe.durationTicks / parallels) : gtRecipe.durationTicks;
-        const estimatedDurationTicks = durationTicksForRounding / (overclockResult.overclockSpeed * speedModifier);
+        let estimatedDurationTicks = durationTicksForRounding / (overclockResult.overclockSpeed * speedModifier);
+        if (machineInfo.durationModifiers) {
+            for (const durationModifier of machineInfo.durationModifiers)
+                estimatedDurationTicks = Math.floor(estimatedDurationTicks * GetParameter(durationModifier, recipeModel));
+            speedModifier = durationTicksForRounding / estimatedDurationTicks / overclockResult.overclockSpeed;
+        }
         let speedCorrectionFactor = 1.0;
         if (!machineInfo.subtick && estimatedDurationTicks > 1) {
             const roundedEstimatedDurationTicks = Math.floor(estimatedDurationTicks);
