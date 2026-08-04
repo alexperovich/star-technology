@@ -308,10 +308,10 @@ exports[`Solver Processing Custom Multiblocks.gtnh should process without errors
   {
     "crafterCount": 1,
     "id": "r:gtceu:large_boiler/createdieselgenerators_wood_chip",
-    "overclockFactor": 4,
-    "overclockName": "OC x2",
-    "powerFactor": 4,
-    "recipesPerMinute": 2400,
+    "overclockFactor": 2,
+    "overclockName": "OC x1",
+    "powerFactor": 2,
+    "recipesPerMinute": 1200,
   },
   {
     "crafterCount": 1.0000000000020832,
@@ -531,10 +531,10 @@ exports[`Solver Processing Overclock Multiblocks.gtnh should process without err
   {
     "crafterCount": 1,
     "id": "r:start:large_barrel/green_concrete",
-    "overclockFactor": 4,
-    "overclockName": "OC x2",
-    "powerFactor": 4,
-    "recipesPerMinute": 4800,
+    "overclockFactor": 1,
+    "overclockName": "",
+    "powerFactor": 1,
+    "recipesPerMinute": 1200,
   },
   {
     "crafterCount": 1.0000000500000001,

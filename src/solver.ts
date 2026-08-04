@@ -138,9 +138,8 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         let energyModifier = GetParameter(machineInfo.power, recipeModel);
         let maxParallels = machineInfo.ignoreParallelLimit ? machineParallels : Math.max(1, Math.floor(actualVoltage / (gtRecipe.voltage * energyModifier * amperage)));
         let parallels = Math.min(maxParallels, machineParallels);
-        let tierDifference = recipeModel.voltageTier - gtRecipe.voltageTier;
-        let overclockTiers = isSingleblock ? tierDifference : Math.min(tierDifference, Math.floor(Math.log2(maxParallels / parallels) / 2));
-        let overclockResult = GetParameter(machineInfo.overclocker, recipeModel).calculate(recipeModel, overclockTiers);
+        let tierDifference = Math.max(0, recipeModel.voltageTier - gtRecipe.voltageTier);
+        const overclocker = GetParameter(machineInfo.overclocker, recipeModel);
         let speedModifier = GetParameter(machineInfo.speed, recipeModel);
         //console.log({machineParallels, maxParallels, parallels, overclockTiers, overclockSpeed, overclockPower, energyModifier, speedModifier});
         
@@ -148,10 +147,37 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         // In case of subtick processing we assume no rounding is taking place, which is a good approximation for now.
         // Some machines round after parallels, for example Advanced Assembly Line
         const durationTicksForRounding = machineInfo.roundAfterParallels ? (gtRecipe.durationTicks / parallels) : gtRecipe.durationTicks;
-        let estimatedDurationTicks = durationTicksForRounding / (overclockResult.overclockSpeed * speedModifier);
+        const durationModifiers = machineInfo.durationModifiers;
+        const applyDurationModifiers = (durationTicks:number) => {
+            if (durationModifiers) {
+                for (const durationModifier of durationModifiers)
+                    durationTicks = Math.floor(durationTicks * GetParameter(durationModifier, recipeModel));
+            }
+            return durationTicks;
+        };
+
+        const estimateDurationTicks = (overclockSpeed:number) => applyDurationModifiers(durationTicksForRounding / (overclockSpeed * speedModifier));
+        const voltageOverclockCap = isSingleblock ? Number.POSITIVE_INFINITY : (maxParallels / parallels);
+        let overclockTiers = 0;
+        let overclockResult = overclocker.calculate(recipeModel, overclockTiers);
+        let estimatedDurationTicks = estimateDurationTicks(overclockResult.overclockSpeed);
+        while (overclockTiers < tierDifference) {
+            const candidateTiers = overclockTiers + 1;
+            const candidate = overclocker.calculate(recipeModel, candidateTiers);
+            if (candidate.overclockSpeed == overclockResult.overclockSpeed && candidate.overclockPower == overclockResult.overclockPower)
+                break;
+            if (candidate.overclockSpeed * candidate.overclockPower > voltageOverclockCap)
+                break;
+            const candidateDurationTicks = estimateDurationTicks(candidate.overclockSpeed);
+            if (!machineInfo.subtick && candidateDurationTicks < 1)
+                break;
+            overclockTiers = candidateTiers;
+            overclockResult = candidate;
+            estimatedDurationTicks = candidateDurationTicks;
+        }
+        if (!machineInfo.subtick && estimatedDurationTicks < 1)
+            estimatedDurationTicks = 1;
         if (machineInfo.durationModifiers) {
-            for (const durationModifier of machineInfo.durationModifiers)
-                estimatedDurationTicks = Math.floor(estimatedDurationTicks * GetParameter(durationModifier, recipeModel));
             speedModifier = durationTicksForRounding / estimatedDurationTicks / overclockResult.overclockSpeed;
         }
         let speedCorrectionFactor = 1.0;
