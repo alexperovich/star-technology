@@ -161,6 +161,7 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         let overclockTiers = 0;
         let overclockResult = overclocker.calculate(recipeModel, overclockTiers);
         let estimatedDurationTicks = estimateDurationTicks(overclockResult.overclockSpeed);
+        let subtickOverclocks = 0;
         while (overclockTiers < tierDifference) {
             const candidateTiers = overclockTiers + 1;
             const candidate = overclocker.calculate(recipeModel, candidateTiers);
@@ -169,15 +170,17 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
             if (candidate.overclockSpeed * candidate.overclockPower > voltageOverclockCap)
                 break;
             const candidateDurationTicks = estimateDurationTicks(candidate.overclockSpeed);
-            if (!machineInfo.subtick && candidateDurationTicks < 1)
-                break;
+            if (candidateDurationTicks < 1) {
+                if (!machineInfo.subtick)
+                    break;
+                ++subtickOverclocks;
+            }
             overclockTiers = candidateTiers;
             overclockResult = candidate;
-            estimatedDurationTicks = candidateDurationTicks;
+            estimatedDurationTicks = Math.max(1, candidateDurationTicks);
         }
-        if (!machineInfo.subtick && estimatedDurationTicks < 1)
-            estimatedDurationTicks = 1;
-        if (machineInfo.durationModifiers) {
+        estimatedDurationTicks = Math.max(1, estimatedDurationTicks);
+        if (machineInfo.durationModifiers && !(machineInfo.subtick && subtickOverclocks > 0)) {
             speedModifier = durationTicksForRounding / estimatedDurationTicks / overclockResult.overclockSpeed;
         }
         let speedCorrectionFactor = 1.0;
@@ -186,9 +189,13 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
             speedCorrectionFactor = estimatedDurationTicks / roundedEstimatedDurationTicks;
         }
 
-        recipeModel.overclockFactor = overclockResult.overclockSpeed * speedModifier * speedCorrectionFactor * parallels;
+        const subtickParallelFactor = Math.pow(2, subtickOverclocks);
+        const effectiveOverclockSpeed = subtickOverclocks > 0
+            ? durationTicksForRounding / speedModifier
+            : overclockResult.overclockSpeed;
+        recipeModel.overclockFactor = effectiveOverclockSpeed * speedModifier * speedCorrectionFactor * parallels * subtickParallelFactor;
         recipeModel.powerFactor = amperage * overclockResult.overclockPower * energyModifier / speedModifier / speedCorrectionFactor;
-        recipeModel.parallels = parallels;
+        recipeModel.parallels = parallels * subtickParallelFactor;
         recipeModel.overclockTiers = overclockTiers;
         recipeModel.overclockName = overclockResult.overclockName;
 
