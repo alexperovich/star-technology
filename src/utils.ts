@@ -189,7 +189,7 @@ export function SetReflectorTiers(tiers:ReflectorTier[]) {
 // --- Parallel hatches ---
 // Populated at load time from the exported parallel-hatch items (see
 // Repository.LoadParallelHatches). Parallel Control Hatches carry a `maxParallel`
-// metadata value; Absolute Parallel Mastery Hatches carry `absoluteParallels`
+// metadata value; Absolute Parallel Mastery Hatches additionally carry `isAbsolute`
 // (their parallels run without extra energy cost).
 export type ParallelHatchTier = {
     name: string;

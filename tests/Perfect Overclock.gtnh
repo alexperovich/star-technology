@@ -1,0 +1,24 @@
+{
+  "name": "Perfect Overclock",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:macerator/macerate_cobblestone",
+        "voltageTier": 7,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:t_large_macerator:0",
+        "choices": {}
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

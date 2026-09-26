@@ -1,7 +1,7 @@
 import { ShowNei, ShowNeiMode, ShowNeiCallback } from "./nei.js";
 import { Goods, Repository, Item, Fluid, Recipe } from "./repository.js";
 import { UpdateProject, addProjectChangeListener, GetByIid, RecipeModel, RecipeGroupModel, ProductModel, ModelObject, PageModel, DragAndDrop, page, FlowInformation, LinkAlgorithm, CopyCurrentPageUrl, DownloadCurrentPage, Search } from "./page.js";
-import { voltageTier, GtVoltageTier, formatAmount } from "./utils.js";
+import { voltageTier, formatAmount } from "./utils.js";
 import { ShowTooltip } from "./tooltip.js";
 import { IconBox } from "./itemIcon.js";
 import { ShowDropdown, HideDropdown } from "./dropdown.js";
@@ -689,12 +689,15 @@ export class RecipeList {
                 shortInfoContent += `<span class="text-small white-text">(${info.join(", ")})</span>`;
             }
 
-            if (!machineInfo.fixedVoltageTier) {
+            if (recipe.recipeType.usesEnergy && machineInfo.fixedVoltageTier === undefined) {
                 const minTier = gtRecipe.voltageTier;
-                const maxTier = voltageTier.length - 1;
-                const options = voltageTier
-                    .slice(minTier, maxTier + 1)
-                    .map((tier: GtVoltageTier, index: number) => `<option value="${minTier + index}" ${minTier + index === recipeModel.voltageTier ? 'selected' : ''}>${tier.name}</option>`)
+                const availableTiers = recipeModel.multiblockCrafter === null
+                    ? recipe.recipeType.singleblocks
+                        .map((item, index) => item && index >= minTier ? index : -1)
+                        .filter(index => index >= 0)
+                    : voltageTier.map((_tier, index) => index).slice(minTier);
+                const options = availableTiers
+                    .map((index) => `<option value="${index}" ${index === recipeModel.voltageTier ? 'selected' : ''}>${voltageTier[index].name}</option>`)
                     .join('');
 
                 shortInfoContent = `

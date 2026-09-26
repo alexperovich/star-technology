@@ -2,6 +2,7 @@ import { GetScrollbarWidth, voltageTier, formatAmount, CoilTierNames, TIER_MV, g
 import { Goods, Fluid, Item, Repository, IMemMappedObjectPrototype, Recipe, RecipeType, RecipeIoType, RecipeInOut, RecipeObject, OreDict, GtRecipeMetadata } from "./repository.js";
 import { SearchQuery } from "./searchQuery.js";
 import { ShowTooltip, HideTooltip } from "./tooltip.js";
+import { formatRecipeProbability } from "./recipeProbability.js";
 
 const repository = Repository.current;
 const nei = document.getElementById("nei")!;
@@ -134,8 +135,8 @@ class NeiRecipeTypeInfo extends Array implements NeiRowAllocator<Recipe>
             if (isFluid || item.amount != 1)
                 iconAttrs += ` data-amount="${amountText}"`;
             dom.push(`<item-icon ${iconAttrs}>`);
-            if (item.probability < 1 && (type == RecipeIoType.ItemOutput || type == RecipeIoType.FluidOutput))
-                dom.push(`<span class="probability">${Math.round(item.probability*100)}%</span>`);
+            if (item.probability < 1)
+                dom.push(`<span class="probability">${formatRecipeProbability(item.probability, item.type)}</span>`);
             dom.push(`</item-icon>`);
         }
         dom.push(`</div>`);
@@ -238,21 +239,23 @@ function DisplayNkeRange(nke:number):string {
 }
 
 function MetadataToString(metadata:GtRecipeMetadata, recipe:Recipe):string | null {
+    const value = Number(metadata.value);
     switch (metadata.key) {
-        case "low_gravity": return metadata.value == 1 ? "Requires low gravity" : null;
-        case "cleanroom": return metadata.value == 1 ? "Requires cleanroom" : null;
-        case "fuel_type": return `Fuel type: ${FuelTypeNames[metadata.value]}`;
-        case "fuel_value": return `Fuel value: ${formatAmount(metadata.value)} EU/L`;
-        case "fusion_threshold": return DisplayFusionTier(metadata.value);
-        case "fog_plasma_multistep": return metadata.value == 1 ? "Multi-step plasma" : "Single-step plasma";
-        case "fog_plasma_tier": return `Plasma tier: ${metadata.value}`;
-        case "pcb_factory_tier": case "nano_forge_tier": return `Requires tier ${metadata.value}`;
-        case "GLASS": return "Glass tier: " + voltageTier[metadata.value-1].name;
-        case "qft_focus_tier": return "QFT focus tier: " + metadata.value;
-        case "recycle": return metadata.value == 1 ? "Recycle recipe" : null;
-        case "ebf_temp": return DisplayHeatRequired(metadata.value, recipe);
-        case "nke_range": return DisplayNkeRange(metadata.value);
-        default: return `${metadata.key}: ${formatAmount(metadata.value)}`;
+        case "low_gravity": return value == 1 ? "Requires low gravity" : null;
+        case "cleanroom": return value == 1 ? "Requires cleanroom" : null;
+        case "fuel_type": return `Fuel type: ${FuelTypeNames[value]}`;
+        case "fuel_value": return `Fuel value: ${formatAmount(value)} EU/L`;
+        case "fusion_threshold": return DisplayFusionTier(value);
+        case "fog_plasma_multistep": return value == 1 ? "Multi-step plasma" : "Single-step plasma";
+        case "fog_plasma_tier": return `Plasma tier: ${value}`;
+        case "pcb_factory_tier": case "nano_forge_tier": return `Requires tier ${value}`;
+        case "GLASS": return "Glass tier: " + voltageTier[value-1].name;
+        case "qft_focus_tier": return "QFT focus tier: " + value;
+        case "recycle": return value == 1 ? "Recycle recipe" : null;
+        case "ebf_temp": return DisplayHeatRequired(value, recipe);
+        case "nke_range": return DisplayNkeRange(value);
+        case "treeType": return `Tree type: ${metadata.value}`;
+        default: return `${metadata.key}: ${isNaN(value) ? metadata.value : formatAmount(value)}`;
     }
 }
 
@@ -650,6 +653,7 @@ interface NeiTab {
     name: string;
     filler: NeiFiller;
     iconId: number;
+    isUnknownIcon?: boolean;
     isVisible(): boolean;
 }
 
@@ -670,10 +674,15 @@ const tabs: NeiTab[] = [
 
 // Add tabs for each recipe type
 allRecipeTypes.forEach(recipeType => {
+    // Use the defaultCrafter's icon if available, otherwise mark as unknown
+    const isUnknown = !recipeType.defaultCrafter;
+    const iconId = recipeType.defaultCrafter?.iconId ?? 0;
+    
     tabs.push({
         name: recipeType.name,
         filler: FillNeiSpecificRecipes(recipeType),
-        iconId: recipeType.defaultCrafter.iconId,
+        iconId: iconId,
+        isUnknownIcon: isUnknown,
         isVisible: () => mapRecipeTypeToRecipeList[recipeType.name].length > 0
     });
 });
@@ -685,10 +694,17 @@ function createTabs() {
     tabs.forEach((tab, index) => {
         const tabElement = document.createElement('div');
         tabElement.className = 'panel-tab';
-        const iconId = tab.iconId;
-        const ix = iconId % 256;
-        const iy = Math.floor(iconId / 256);
-        tabElement.innerHTML = `<icon class="icon" style="--pos-x:${ix * -32}px; --pos-y:${iy * -32}px"></icon>`;
+        
+        if (tab.isUnknownIcon) {
+            // Show "?" for recipe types with no default crafter
+            tabElement.innerHTML = `<div class="unknown-icon">?</div>`;
+        } else {
+            const iconId = tab.iconId;
+            const ix = iconId % 256;
+            const iy = Math.floor(iconId / 256);
+            tabElement.innerHTML = `<icon class="icon" style="--pos-x:${ix * -32}px; --pos-y:${iy * -32}px"></icon>`;
+        }
+        
         tabElement.addEventListener('click', () => switchTab(index));
         tabElement.addEventListener('mouseenter', () => ShowTooltip(tabElement, { header: tab.name }));
         neiTabs.appendChild(tabElement);

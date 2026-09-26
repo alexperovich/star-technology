@@ -13,7 +13,7 @@
     public class RecipeMetadata : IEquatable<RecipeMetadata>
     {
         public string key;
-        public double value;
+        public string value;
 
         public bool Equals(RecipeMetadata other)
         {

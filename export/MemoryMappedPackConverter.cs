@@ -19,7 +19,7 @@ namespace Source
         private readonly List<int> rawData = new List<int>();
         private readonly string[] serviceItems = new[] { "Quest Book", "Anvil" };
         
-        private const int DATA_VERSION = 7;
+        private const int DATA_VERSION = 9;
 
         public MemoryMappedPackConverter(Repository repository)
         {
@@ -82,6 +82,7 @@ namespace Source
                 case GtRecipeInfo gtRecipe: Write(gtRecipe); return;
                 case RecipeMetadata metadata: Write(metadata); return;
                 case ItemMetadata itemMetadata: Write(itemMetadata); return;
+                case TooltipModifierSection modifierSection: Write(modifierSection); return;
                 case FluidContainer container: Write(container); return;
                 case int[] intArr: Write(intArr); return;
                 case IList genericList: Write(genericList); return;
@@ -121,13 +122,20 @@ namespace Source
         private void Write(RecipeMetadata metadata)
         {
             WriteStringRef(metadata.key);
-            WriteDouble(metadata.value);
+            WriteStringRef(metadata.value);
         }
 
         private void Write(ItemMetadata metadata)
         {
             WriteStringRef(metadata.key);
             WriteDouble(metadata.value);
+        }
+
+        private void Write(TooltipModifierSection section)
+        {
+            WriteStringRef(section.id);
+            WriteStringRef(MinecraftTextConverter.ToHtml(section.name));
+            WriteObjectRef(section.description.Select(MinecraftTextConverter.ToHtml).ToList());
         }
 
         private void WriteIndexBits(IndexableObject obj)
@@ -227,6 +235,10 @@ namespace Source
             WriteStringRef(goods.nbt);
             WriteObjectRef(Array.ConvertAll(goods.production, x => repository.recipes[x]).ToArray());
             WriteObjectRef(Array.ConvertAll(goods.consumption, x => repository.recipes[x]).ToArray());
+            WriteObjectRef(goods.modifierSections);
+            WriteObjectRef(goods.pages
+                .Select(page => page.Select(MinecraftTextConverter.ToHtml).ToList())
+                .ToList());
         }
         
         private void Write(Fluid fluid)
@@ -266,7 +278,7 @@ namespace Source
                     if (!stringPositions.TryGetValue(s, out var existingPos))
                     {
                         stringPositions[s] = existingPos = rawData.Count;
-                        var processedString = s.Trim().Replace("\r", "");
+                        var processedString = s.Replace("\r", "");
                         var stringBytes = Encoding.UTF8.GetBytes(processedString).AsSpan();
                         rawData.Add(stringBytes.Length);
                         while (stringBytes.Length > 0)

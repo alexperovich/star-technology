@@ -1,6 +1,6 @@
 import { RecipeModel, OverclockResult } from "./page.js";
 import { Fluid, Goods, Item, Recipe, RecipeInOut, RecipeIoType, RecipeType, Repository } from "./repository.js";
-import { TIER_LV, TIER_MV, TIER_EV, TIER_IV, TIER_LUV, TIER_ZPM, TIER_UV, TIER_UHV, TIER_UEV, TIER_UIV, TIER_UXV, CoilTierNames, CoilTiers } from "./utils.js";
+import { TIER_LV, TIER_MV, TIER_HV, TIER_EV, TIER_IV, TIER_LUV, TIER_ZPM, TIER_UV, TIER_UHV, TIER_UEV, TIER_UIV, TIER_UXV, CoilTierNames, CoilTiers } from "./utils.js";
 import { voltageTier, getFusionTierByStartupCost, formatTicksAsTime, RotorHolderTiers, TurbineRotors, ReflectorTiers, ParallelHatchTier, ParallelHatchTiers, AbsoluteParallelHatchTiers, HeatingFluids } from "./utils.js";
 
 export type MachineCoefficient<T> = Exclude<T, Function> | ((recipe:RecipeModel, choices:{[key:string]:number}) => T);
@@ -120,9 +120,11 @@ export type Machine = {
     info?: MachineCoefficient<string>;
     ignoreParallelLimit?: boolean;
     fixedVoltageTier?: MachineCoefficient<number>;
+    overclockBaseVoltage?: MachineCoefficient<number>;
     excludesRecipe?: (recipe:Recipe) => boolean;
     roundAfterParallels?: boolean;
     subtick?: boolean;
+    truncateFinalEuPerTick?: boolean;
 }
 
 export function GetParameter<T>(coefficient: MachineCoefficient<T>, recipeModel:RecipeModel): T {
@@ -177,9 +179,30 @@ const singleBlockMachineWith22Overclock:Machine = {
     parallels: 1,
 };
 
+const generatorParallels = (recipe:RecipeModel):number => {
+    const recipeTier = recipe.recipe?.gtRecipe.voltageTier ?? recipe.voltageTier;
+    return Math.pow(4, Math.max(0, recipe.voltageTier - recipeTier));
+};
+
+const tieredGeneratorMachine:Machine = {
+    overclocker: NullOverclocker.instance,
+    speed: 1,
+    power: 1,
+    parallels: generatorParallels,
+    ignoreParallelLimit: true,
+};
+
+const GENERATOR_RECIPE_TYPES = new Set([
+    "Combustion Generator",
+    "Gas Turbine",
+    "Steam Turbine",
+]);
+
 export function GetSingleBlockMachine(recipeType:RecipeType):Machine {
     if (recipeType.name == "Mass Fabrication")
         return singleBlockMachineWith22Overclock;
+    if (GENERATOR_RECIPE_TYPES.has(recipeType.name))
+        return tieredGeneratorMachine;
     return singleBlockMachine;
 }
 
@@ -218,6 +241,27 @@ function parallelHatchCount(tiers:ParallelHatchTier[], index:number):number {
     return Math.max(1, tier?.parallels ?? 1);
 }
 
+// --- Bulking (throughput multiplier with choice) ---
+type BulkingType = { parallels: number; durationMultiplier: number };
+const BULKING_TYPES: BulkingType[] = [
+    { parallels: 4, durationMultiplier: 3.25 },
+    { parallels: 8, durationMultiplier: 6.5 },
+    { parallels: 16, durationMultiplier: 13 },
+    { parallels: 32, durationMultiplier: 26 },
+    { parallels: 64, durationMultiplier: 52 },
+];
+
+function makeBulkingChoice(): Choice {
+    return {
+        description: "Bulking",
+        choices: BULKING_TYPES.map((type, i) => `Type ${i}: ${type.parallels}x / ${type.durationMultiplier}x`),
+    };
+}
+
+function getBulkingMultipliers(index: number): BulkingType {
+    return BULKING_TYPES[index] ?? BULKING_TYPES[2];
+}
+
 // Describes every machine choice key the user can set a global default for,
 // together with the human-readable option labels (matching how each choice is
 // rendered on individual recipes). Used by the "Default machine choices" editor.
@@ -232,6 +276,7 @@ export function getChoiceDefaultDescriptors():ChoiceDescriptor[] {
         { key: "coilTier", description: "Coils", options: CoilTierNames.map((name, index) => `T${index+1}: ${name}`) },
         { key: "parallels", description: "Parallel Hatch", options: ParallelHatchTiers.map((tier) => `${tier.name}: ${tier.parallels}`) },
         { key: "absoluteParallels", description: "Absolute Parallel Hatch", options: AbsoluteParallelHatchTiers.map((tier) => `${tier.name}: ${tier.parallels}`) },
+        { key: "bulking", description: "Bulking", options: BULKING_TYPES.map((type, i) => `Type ${i}: ${type.parallels}x / ${type.durationMultiplier}x`) },
         { key: "reflector", description: "Reflector", options: ReflectorTiers.map((reflector) => `T${reflector.tier}: ${reflector.name}`) },
         { key: "heatingFluid", description: "Heating Fluid", options: HeatingFluids.map((fluid) => `${fluid.name}: ${fluid.temperature}MK`) },
         { key: "rotorHolder", description: "Rotor Holder", options: RotorHolderTiers.map((holder) => holder.name) },
@@ -352,7 +397,12 @@ function makeEbfOverclocker(recipe:RecipeModel, choices:{[key:string]:number}):O
 
 function ebfPower(recipe:RecipeModel, choices:{[key:string]:number}):number {
     const energyReductions = Math.floor(getEbfExcessHeat(recipe, choices) / 900);
-    return Math.pow(0.95, energyReductions);
+    const gtRecipe = recipe.recipe?.gtRecipe;
+    const baseEuPerTick = Math.abs((gtRecipe?.voltage ?? 0) * (gtRecipe?.amperage ?? 1));
+    if (baseEuPerTick === 0)
+        return 1;
+    const discountedEuPerTick = Math.floor(baseEuPerTick * Math.pow(0.95, energyReductions));
+    return discountedEuPerTick / baseEuPerTick;
 }
 
 // Mutable accumulator describing the machine being assembled from modifiers.
@@ -363,11 +413,13 @@ type MachineBuilder = {
     parallelFactors: MachineCoefficient<number>[];
     overclocker?: MachineCoefficient<Overclocker>;
     subtick: boolean;
+    truncateFinalEuPerTick: boolean;
     ignoreParallelLimit: boolean;
     choices: {[key:string]:Choice};
     enforceChoiceConstraints?: (recipe:RecipeModel, choices:{[key:string]:number}) => void;
     excludesRecipe?: (recipe:Recipe) => boolean;
     fixedVoltageTier?: MachineCoefficient<number>;
+    overclockBaseVoltage?: MachineCoefficient<number>;
     infos: string[];
 };
 
@@ -381,6 +433,14 @@ function addCoilChoice(builder:MachineBuilder) {
 function addParallelChoice(builder:MachineBuilder) {
     builder.choices["parallels"] = makeParallelHatchChoice(ParallelHatchTiers);
     builder.parallelFactors.push((_recipe, choices) => parallelHatchCount(ParallelHatchTiers, choices.parallels));
+}
+
+function addBulkingChoice(builder:MachineBuilder) {
+    builder.choices["bulking"] = makeBulkingChoice();
+    builder.parallelFactors.push((_recipe, choices) => getBulkingMultipliers(choices.bulking).parallels);
+    builder.durationModifiers.push((_recipe, choices) => getBulkingMultipliers(choices.bulking).durationMultiplier);
+    // Bulking multiplies recipe contents without multiplying EU/t.
+    builder.powerFactors.push((_recipe, choices) => 1 / getBulkingMultipliers(choices.bulking).parallels);
 }
 
 // Like addParallelChoice, but the parallels do not increase the EU consumed:
@@ -425,6 +485,7 @@ const modifierRegistry: {[id:string]: ModifierImpl} = {
         builder.overclocker = StandardOverclocker.onlyNormal();
         builder.subtick = true;
     },
+    "subtick": builder => { builder.subtick = true; },
 
     // --- Parallels ---
     // parallel_hatch scales EU with the parallel count (voltage-budget limited),
@@ -440,11 +501,9 @@ const modifierRegistry: {[id:string]: ModifierImpl} = {
         // The 4 parallels are free: divide the per-recipe power so total EU does
         // not grow with the parallel count.
         builder.powerFactors.push(1 / 4);
+        builder.truncateFinalEuPerTick = true;
     },
-    "bulk_processing": builder => {
-        builder.parallelFactors.push(16);
-        builder.durationModifiers.push(13);
-    },
+    "bulking": addBulkingChoice,
 
     // --- Coil-based specialised overclocks ---
     "ebf_oc": builder => {
@@ -481,17 +540,34 @@ const modifierRegistry: {[id:string]: ModifierImpl} = {
         builder.powerFactors.push((_recipe, choices) => 1 - choices.coilTier * 0.05);
     },
     "multi_smellter_parallel": builder => {
-        // Approximation: maxParallel = 32 * coil smelter level. The in-game logic
-        // also rewrites recipe duration/EUt, which is not modelled here.
         builder.overclocker = StandardOverclocker.onlyNormal();
-        builder.subtick = true;
         addCoilChoice(builder);
-        builder.parallelFactors.push((_recipe, choices) => {
+        const maxParallels = (_recipe:RecipeModel, choices:{[key:string]:number}) => {
             const coil = CoilTiers[choices.coilTier] ?? CoilTiers[0];
             const level = coil ? coil.smelterLevel : (choices.coilTier + 1);
             return Math.max(1, 32 * level);
+        };
+        builder.parallelFactors.push(maxParallels);
+        // At full parallel capacity the game rewrites the recipe to 256 ticks
+        // before overclocking, regardless of the original recipe duration.
+        builder.speedFactors.push((recipe, choices) => {
+            const duration = recipe.recipe?.gtRecipe.durationTicks ?? 256;
+            return duration / 256;
         });
-        builder.infos.push("Multi Smelter parallels approximated (duration/EUt overrides not modelled).");
+        // The rewritten base EU/t is floor(maxParallel / (2 * coilDiscount)).
+        // Parallel contents are then applied without multiplying that EU/t.
+        const baseEuPerTick = (recipe:RecipeModel, choices:{[key:string]:number}) => {
+            const coil = CoilTiers[choices.coilTier] ?? CoilTiers[0];
+            const discount = Math.max(1, coil?.energyDiscount ?? 1);
+            return Math.max(1, Math.floor(maxParallels(recipe, choices) / (2 * discount)));
+        };
+        builder.overclockBaseVoltage = baseEuPerTick;
+        builder.powerFactors.push((recipe, choices) => {
+            const recipeEuPerTick = Math.abs(recipe.recipe?.gtRecipe.voltage ?? 0);
+            if (recipeEuPerTick <= 0)
+                return 1;
+            return baseEuPerTick(recipe, choices) / (recipeEuPerTick * maxParallels(recipe, choices));
+        });
     },
 
     // --- No-ops for rate calculation ---
@@ -566,6 +642,7 @@ function ComposeMachineFromModifiers(crafter:Item, _recipeType:RecipeType):Machi
         parallelFactors: [],
         overclocker: undefined,
         subtick: false,
+        truncateFinalEuPerTick: false,
         ignoreParallelLimit: false,
         choices: {},
         infos: [],
@@ -603,6 +680,8 @@ function ComposeMachineFromModifiers(crafter:Item, _recipeType:RecipeType):Machi
         machine.durationModifiers = builder.durationModifiers;
     if (builder.subtick)
         machine.subtick = true;
+    if (builder.truncateFinalEuPerTick)
+        machine.truncateFinalEuPerTick = true;
     if (Object.keys(builder.choices).length > 0)
         machine.choices = builder.choices;
     if (builder.enforceChoiceConstraints)
@@ -611,6 +690,8 @@ function ComposeMachineFromModifiers(crafter:Item, _recipeType:RecipeType):Machi
         machine.excludesRecipe = builder.excludesRecipe;
     if (builder.fixedVoltageTier !== undefined)
         machine.fixedVoltageTier = builder.fixedVoltageTier;
+    if (builder.overclockBaseVoltage !== undefined)
+        machine.overclockBaseVoltage = builder.overclockBaseVoltage;
     if (builder.ignoreParallelLimit)
         machine.ignoreParallelLimit = true;
     if (builder.infos.length > 0)
@@ -889,11 +970,27 @@ function makeParallelOnlyMachine():Machine {
     };
 }
 
+function makeCompoundGeneratorMachine(voltageTierIndex:number):Machine {
+    return {
+        overclocker: NullOverclocker.instance,
+        speed: 1,
+        power: 1,
+        parallels: (recipe) => 16 * generatorParallels(recipe),
+        fixedVoltageTier: voltageTierIndex,
+        ignoreParallelLimit: true,
+        info: "Generates 16A at its fixed voltage with 100% fuel efficiency.",
+    };
+}
+
 // Crafters whose machine cannot be derived from modifiers. Keyed by the binary
 // item id (i:<mod>:<internalName>:<damage>).
 const customMachineRegistry:{[crafterId:string]: (crafter:Item) => Machine} = {
     // Nuclear Reactor: supports parallel hatches only, never overclocks.
     "i:gtceu:nuclear_reactor:0": () => makeParallelOnlyMachine(),
+    "i:gtceu:lv_compound_generator:0": () => makeCompoundGeneratorMachine(TIER_LV),
+    "i:gtceu:mv_compound_generator:0": () => makeCompoundGeneratorMachine(TIER_MV),
+    "i:gtceu:hv_compound_generator:0": () => makeCompoundGeneratorMachine(TIER_HV),
+    "i:gtceu:steam_large_turbine:0": () => makeTurbineMachine({ controllerTier: 3, baseProduction: 1024, parallelBonus: 1 }),
     "i:gtceu:gas_large_turbine:0": () => makeTurbineMachine({ controllerTier: 4, baseProduction: 4096, parallelBonus: 1 }),
     "i:gtceu:plasma_large_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 1 }),
     "i:gtceu:supreme_plasma_turbine:0": () => makeTurbineMachine({ controllerTier: 5, baseProduction: 16384, parallelBonus: 6, boostTable: [0.9, 1.25, 2] }),
@@ -907,7 +1004,7 @@ const customMachineRegistry:{[crafterId:string]: (crafter:Item) => Machine} = {
     "i:start_core:ev_solar_panel:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.0, isArray: false }),
     "i:start_core:iv_solar_panel:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.05, isArray: false }),
     "i:start_core:luv_solar_panel:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.1, isArray: false }),
-    "i:start_core:uv_solar_array:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.2, voltMultCooled: 1.328, isArray: true }),
+    "i:start_core:uv_solar_array:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.2, voltMultCooled: 1.325, isArray: true }),
     "i:start_core:uhv_solar_array:0": (crafter) => makeSolarMachine(crafter, { voltMult: 1.25, voltMultCooled: 1.45, isArray: true }),
 };
 

@@ -1,0 +1,26 @@
+{
+  "name": "Chemical Reactor Overclock",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:large_chemical_reactor/sulfuric_acid_from_sulfur",
+        "voltageTier": 9,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:large_chemical_reactor:0",
+        "choices": {
+          "coilTier": 10
+        }
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

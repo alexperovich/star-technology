@@ -8,6 +8,7 @@ import { setupRepository } from './setup';
 const PLASMA_TURBINE = 'i:gtceu:plasma_large_turbine:0';
 const SUPREME_TURBINE = 'i:gtceu:supreme_plasma_turbine:0';
 const GAS_TURBINE = 'i:gtceu:gas_large_turbine:0';
+const STEAM_TURBINE = 'i:gtceu:steam_large_turbine:0';
 
 // Plasma fuels are direct fluids; the gas fuels are single-variant forge tags
 // that resolve to one fluid, so every fuel slot is a plain FluidInput. Plasma
@@ -16,11 +17,12 @@ const HELIUM_RECIPE = 'r:start:plasma_generator/helium_from_helium_plasma';
 const ARGON_RECIPE = 'r:start:plasma_generator/argon_from_argon_plasma';
 const IRON_RECIPE = 'r:start:plasma_generator/iron_from_iron_plasma';
 const GAS_NITROBENZENE_RECIPE = 'r:gtceu:gas_turbine/nitrobenzene';
+const STEAM_RECIPE = 'r:gtceu:steam_turbine/steam';
 
 // controllerTier IV (5) for the plasma turbines, parallelBonus 1.
 const PLASMA_BASE = 16384;
 
-function solve(crafter: string, recipeId: string, choices: { [key: string]: number }): RecipeModel {
+function solve(crafter: string, recipeId: string, choices: { [key: string]: number }, selectedVoltageTier = 9): RecipeModel {
     const page = new PageModel({
         name: 'Turbine Test',
         products: [],
@@ -30,7 +32,7 @@ function solve(crafter: string, recipeId: string, choices: { [key: string]: numb
             elements: [{
                 type: 'recipe',
                 recipeId,
-                voltageTier: 9,
+                voltageTier: selectedVoltageTier,
                 fixedCrafterCount: 1,
                 crafter,
                 choices,
@@ -85,6 +87,12 @@ describe('Large turbine generators', () => {
     // while EU/t itself is the unrounded maxVoltage (independent of efficiency).
     const cases = [
         {
+            name: 'Large Steam / HV / Steam',
+            turbine: STEAM_TURBINE, recipe: STEAM_RECIPE, holderTier: 3,
+            power: 100, efficiency: 120,   // tierDiff 0 -> 120% total
+            parallels: 32, durationTicks: 12, fuelPerSecond: 34133.33, outputEuPerTick: 1024,
+        },
+        {
             name: 'Large Plasma / IV / Helium',
             turbine: PLASMA_TURBINE, recipe: HELIUM_RECIPE, holderTier: 5,
             power: 150, efficiency: 120,   // tierDiff 0 -> 120% total
@@ -125,6 +133,20 @@ describe('Large turbine generators', () => {
             expect(producedEuPerTick(model)).toBeCloseTo(c.outputEuPerTick, 0);
         });
     }
+
+    it('keeps voltage selection independent from rotor holder tier', () => {
+        const choices = {
+            rotorHolder: holderIndex(3),
+            turbineRotor: rotor(100, 120),
+        };
+        const low = solve(STEAM_TURBINE, STEAM_RECIPE, choices, 2);
+        const high = solve(STEAM_TURBINE, STEAM_RECIPE, choices, 9);
+
+        expect(low.voltageTier).toBe(2);
+        expect(high.voltageTier).toBe(9);
+        expect(producedEuPerTick(high)).toBeCloseTo(producedEuPerTick(low), 8);
+        expect(fuelPerSecond(high, STEAM_RECIPE)).toBeCloseTo(fuelPerSecond(low, STEAM_RECIPE), 8);
+    });
 
     it('adds a flat +10% holder bonus per tier, not a compounding 1.1^tier', () => {
         // Lumium (eff 160%) two tiers above the IV controller (ZPM) totals

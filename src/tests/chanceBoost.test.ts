@@ -7,7 +7,7 @@ import { setupRepository } from './setup';
 // Void Excavation has six chanced item outputs, each carrying a positive
 // tierChanceBoost, which makes it a good end-to-end check for chance boosting.
 const RECIPE_ID = 'r:start:void_excavation/mining';
-const CRAFTER_ID = 'i:gtceu:void_excavator:0';
+const CRAFTER_ID = 'i:gtceu:void_extractor:0';
 
 function solveAt(tier: number): RecipeModel {
     const page = new PageModel({

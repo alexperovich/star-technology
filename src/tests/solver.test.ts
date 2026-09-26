@@ -13,7 +13,7 @@ function loadTestFiles(): string[] {
 const testFiles = loadTestFiles();
 
 function getRecipeExpectations(recipe: RecipeModel) {
-    return {
+    const expectations: any = {
         recipesPerMinute: recipe.recipesPerMinute,
         crafterCount: recipe.crafterCount,
         powerFactor: recipe.powerFactor,
@@ -21,6 +21,21 @@ function getRecipeExpectations(recipe: RecipeModel) {
         overclockName: recipe.overclockName,
         id: recipe.recipeId
     };
+
+    if (recipe.recipe?.gtRecipe) {
+        expectations.parallels = recipe.parallels;
+        expectations.durationTicks = Math.round(
+            recipe.recipe.gtRecipe.durationTicks * recipe.parallels / recipe.overclockFactor
+        );
+        expectations.euPerTick = Math.round(recipe.flow.energy[recipe.voltageTier]);
+        expectations.outputsPerSecond = Object.fromEntries(
+            Object.entries(recipe.flow.output)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([id, amount]) => [id, Number((amount / 60).toFixed(8))])
+        );
+    }
+
+    return expectations;
 }
 
 function processRecipeGroup(group: RecipeGroupModel): any[] {

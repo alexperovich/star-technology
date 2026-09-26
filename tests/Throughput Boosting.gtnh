@@ -1,0 +1,26 @@
+{
+  "name": "Throughput Boosting",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:electric_blast_furnace/blast_steel",
+        "voltageTier": 7,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:super_ebf:0",
+        "choices": {
+          "coilTier": 10
+        }
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

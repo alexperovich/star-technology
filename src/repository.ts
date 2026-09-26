@@ -5,7 +5,7 @@ const charCodeItem = "i".charCodeAt(0);
 const charCodeFluid = "f".charCodeAt(0);
 const charCodeRecipe = "r".charCodeAt(0);
 
-const DATA_VERSION = 7;
+const DATA_VERSION = 9;
 export class Repository
 {
     static current:Repository;
@@ -23,6 +23,7 @@ export class Repository
     service:Int32Array;
 
     objectPositionMap: {[id:string]:number} = {};
+    private recipeTypeUsesEnergy: Map<number, boolean> | undefined;
 
     constructor(data: ArrayBuffer)
     {
@@ -181,9 +182,8 @@ export class Repository
     }
 
     private LoadParallelHatches() {
-        // Parallel Control Hatches carry a `maxParallel` metadata value; Absolute
-        // Parallel Mastery Hatches carry `absoluteParallels`. Both map to a list of
-        // selectable parallel counts.
+        // Absolute Parallel Mastery Hatches carry `isAbsolute` in addition to the
+        // `maxParallel` value shared by both hatch types.
         const parallel:ParallelHatchTier[] = [];
         const absolute:ParallelHatchTier[] = [];
         const seenParallel = new Set<number>();
@@ -191,14 +191,14 @@ export class Repository
         for (let i = 0; i < this.items.length; i++) {
             const item = this.GetObject(this.items[i], Item);
             let maxParallel = -1;
-            let absoluteParallels = -1;
+            let isAbsolute = false;
             for (const metadata of item.metadata) {
                 switch (metadata.key) {
                     case "maxParallel": maxParallel = metadata.value; break;
-                    case "absoluteParallels": absoluteParallels = metadata.value; break;
+                    case "isAbsolute": isAbsolute = true; break;
                 }
             }
-            if (maxParallel > 0 && !seenParallel.has(maxParallel)) {
+            if (maxParallel > 0 && !isAbsolute && !seenParallel.has(maxParallel)) {
                 seenParallel.add(maxParallel);
                 let name = stripFormatting(item.name);
                 const suffix = " Parallel Control Hatch";
@@ -206,13 +206,13 @@ export class Repository
                     name = name.slice(0, -suffix.length);
                 parallel.push({ name, parallels: maxParallel });
             }
-            if (absoluteParallels > 0 && !seenAbsolute.has(absoluteParallels)) {
-                seenAbsolute.add(absoluteParallels);
+            if (maxParallel > 0 && isAbsolute && !seenAbsolute.has(maxParallel)) {
+                seenAbsolute.add(maxParallel);
                 let name = stripFormatting(item.name);
                 const suffix = " Absolute Parallel Mastery Hatch";
                 if (name.endsWith(suffix))
                     name = name.slice(0, -suffix.length);
-                absolute.push({ name, parallels: absoluteParallels });
+                absolute.push({ name, parallels: maxParallel });
             }
         }
         parallel.sort((a, b) => a.parallels - b.parallels);
@@ -245,6 +245,21 @@ export class Repository
         if (!this.objectPositionMap[id])
             return null;
         return this.GetObject(this.objectPositionMap[id], type) as T;
+    }
+
+    RecipeTypeUsesEnergy(recipeType:RecipeType):boolean
+    {
+        if (!this.recipeTypeUsesEnergy) {
+            this.recipeTypeUsesEnergy = new Map<number, boolean>();
+            for (const pointer of this.recipeTypes)
+                this.recipeTypeUsesEnergy.set(pointer, false);
+            for (const pointer of this.recipes) {
+                const recipe = this.GetObject(pointer, Recipe);
+                if (recipe.gtRecipe?.voltage !== 0)
+                    this.recipeTypeUsesEnergy.set(recipe.recipeType.objectOffset, true);
+            }
+        }
+        return this.recipeTypeUsesEnergy.get(recipeType.objectOffset) ?? false;
     }
 
     public ObjectMatchQueryBits(query:SearchQuery, pointer:number):boolean
@@ -420,6 +435,12 @@ export abstract class Goods extends RecipeObject
     get nbt(): string | null {return this.GetString(12);}
     get production(): Int32Array {return this.GetSlice(13);}
     get consumption(): Int32Array {return this.GetSlice(14);}
+    get modifierSections():TooltipModifierSection[] {return this.GetArray(15, TooltipModifierSection);}
+    get pages():string[][] {
+        return Array.from(this.GetSlice(16), pagePointer =>
+            Array.from(this.repository.GetSlice(pagePointer), linePointer =>
+                this.repository.GetString(linePointer)));
+    }
 
     abstract get tooltipDebugInfo():string;
 
@@ -433,11 +454,11 @@ export abstract class Goods extends RecipeObject
 
 export class Item extends Goods
 {
-    get stackSize():number {return this.GetInt(15);}
-    get damage():number {return this.GetInt(16);}
-    get container():FluidContainer | null {return this.GetObject(17, FluidContainer);}
-    get recipeModifiers():string[] {return this.GetStringArray(18);}
-    get metadata():ItemMetadata[] {return this.GetArray(19, ItemMetadata);}
+    get stackSize():number {return this.GetInt(17);}
+    get damage():number {return this.GetInt(18);}
+    get container():FluidContainer | null {return this.GetObject(19, FluidContainer);}
+    get recipeModifiers():string[] {return this.GetStringArray(20);}
+    get metadata():ItemMetadata[] {return this.GetArray(21, ItemMetadata);}
 
     MetadataByKey(key:string, defaultValue:number = 0):number {
         for (const metadata of this.metadata) {
@@ -466,8 +487,8 @@ export class FluidContainer extends MemMappedObject
 
 export class Fluid extends Goods
 {
-    get isGas():boolean {return this.GetInt(15) === 1;}
-    get containers():Int32Array {return this.GetSlice(16);}
+    get isGas():boolean {return this.GetInt(17) === 1;}
+    get containers():Int32Array {return this.GetSlice(18);}
     get tooltipDebugInfo(): string {
         return `${this.mod}:${this.internalName}`;
     }
@@ -511,6 +532,7 @@ export class RecipeType extends MemMappedObject
     get category():string {return this.GetString(1);}
     get dimensions():Int32Array {return this.GetSlice(2);}
     get shapeless():boolean {return this.GetInt(4) === 1;}
+    get usesEnergy():boolean {return this.repository.RecipeTypeUsesEnergy(this);}
 }
 
 class GtRecipe extends MemMappedObject
@@ -527,6 +549,16 @@ class GtRecipe extends MemMappedObject
     MetadataByKey(key:string, defaultValue:number = 0):number {
         for (const metadata of this.metadata) {
             if (metadata.key === key) {
+                const value = Number(metadata.value);
+                return isNaN(value) ? defaultValue : value;
+            }
+        }
+        return defaultValue;
+    }
+
+    MetadataTextByKey(key:string, defaultValue:string = ""):string {
+        for (const metadata of this.metadata) {
+            if (metadata.key === key) {
                 return metadata.value;
             }
         }
@@ -537,13 +569,20 @@ class GtRecipe extends MemMappedObject
 export class GtRecipeMetadata extends MemMappedObject
 {
     get key():string {return this.GetString(0);}
-    get value():number {return this.GetDouble(1);}
+    get value():string {return this.GetString(1);}
 }
 
 export class ItemMetadata extends MemMappedObject
 {
     get key():string {return this.GetString(0);}
     get value():number {return this.GetDouble(1);}
+}
+
+export class TooltipModifierSection extends MemMappedObject
+{
+    get id():string {return this.GetString(0);}
+    get name():string {return this.GetString(1);}
+    get description():string[] {return this.GetStringArray(2);}
 }
 
 export enum RecipeIoType

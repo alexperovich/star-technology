@@ -24,7 +24,7 @@ namespace Source
         // Recipe references to items/fluids that are known-missing and tolerated (populated as needed).
         private static readonly HashSet<string> IgnoredMissingRefs = new();
 
-        // Recipe metadata keys to drop (non-numeric / not needed by the calculator).
+        // Recipe metadata keys to drop (not needed by the calculator).
         private static readonly HashSet<string> IgnoredRecipeMetadataKeys = new() { "layered_steps" };
 
         // Recipe types to exclude entirely (informational only, not real crafting).
@@ -37,6 +37,15 @@ namespace Source
             "gtceu:luv_large_miner",
             "gtceu:ev_large_miner",
             "gtceu:iv_large_miner",
+        };
+
+        // Modifier metadata omitted by the exporter but required to model the machine.
+        private static readonly Dictionary<string, string[]> HardcodedRecipeModifiers = new()
+        {
+            ["gtceu:electric_blast_furnace"] = new[] { "subtick" },
+            ["gtceu:large_chemical_reactor"] = new[] { "subtick" },
+            ["gtceu:mega_blast_furnace"] = new[] { "subtick" },
+            ["gtceu:super_ebf"] = new[] { "subtick" },
         };
 
         // Vanilla furnace recipe types run in GT machines at a fixed energy cost,
@@ -56,6 +65,8 @@ namespace Source
         {
             ["gtceu:bacterial_hydrocarbon_harvester"] = TransformBacterialHydrocarbonHarvester,
             ["gtceu:bacterial_breeding_vat"] = TransformBacterialBreedingVat,
+            ["gtceu:solar_panel_replacement"] = TransformSolarPanelReplacement,
+            ["gtceu:canner"] = TransformCanner,
         };
 
         #region JSON models
@@ -67,9 +78,23 @@ namespace Source
             public string nbt { get; set; }
             public string displayName { get; set; }
             public string modName { get; set; }
-            public List<string> tooltip { get; set; }
+            public JsonElement tooltip { get; set; }
             public string image { get; set; }
             public Dictionary<string, JsonElement> metadata { get; set; }
+        }
+
+        private class TooltipJson
+        {
+            public List<string> defaultLines { get; set; }
+            public List<TooltipModifierSectionJson> modifierSections { get; set; }
+            public List<List<string>> pages { get; set; }
+        }
+
+        private class TooltipModifierSectionJson
+        {
+            public string id { get; set; }
+            public string name { get; set; }
+            public List<string> description { get; set; }
         }
 
         private class StackJson
@@ -130,12 +155,15 @@ namespace Source
                 if (entry.tag != null || key.StartsWith("#"))
                     continue;
                 var fullId = entry.id ?? key;
+                var tooltip = ExtractTooltip(entry.tooltip);
                 var item = new Item
                 {
                     name = entry.displayName,
                     mod = Namespace(fullId),
                     internalName = InternalName(fullId),
-                    tooltip = JoinTooltip(entry.tooltip),
+                    tooltip = JoinTooltip(tooltip?.defaultLines),
+                    modifierSections = ConvertModifierSections(tooltip?.modifierSections),
+                    pages = tooltip?.pages ?? new(),
                     nbt = entry.nbt,
                     stackSize = 64,
                     damage = 0,
@@ -143,9 +171,8 @@ namespace Source
                     imagePath = entry.image,
                 };
                 ApplyItemMetadata(item, entry.metadata, key);
-                ApplyMaxEnergyStorage(item, entry.tooltip);
-                ApplyAbsoluteParallels(item, entry.tooltip);
-                ApplyMaxParallels(item, entry.tooltip);
+                ApplyHardcodedRecipeModifiers(item, fullId);
+                ApplyMaxEnergyStorage(item, tooltip?.defaultLines);
                 items[key] = item;
             }
 
@@ -155,13 +182,16 @@ namespace Source
                 if (entry.tag != null || key.StartsWith("#"))
                     continue;
                 var fullId = entry.id ?? key;
+                var tooltip = ExtractTooltip(entry.tooltip);
                 fluids[key] = new Fluid
                 {
                     name = entry.displayName,
                     mod = Namespace(fullId),
                     internalName = InternalName(fullId),
-                    tooltip = JoinTooltip(entry.tooltip),
-                    isGas = entry.tooltip != null && entry.tooltip.Any(t => t.Contains("State: Gas")),
+                    tooltip = JoinTooltip(tooltip?.defaultLines),
+                    modifierSections = ConvertModifierSections(tooltip?.modifierSections),
+                    pages = tooltip?.pages ?? new(),
+                    isGas = tooltip?.defaultLines?.Any(t => t.Contains("State: Gas")) ?? false,
                     nbt = entry.nbt,
                     numericId = 0,
                     imagePath = entry.image,
@@ -505,11 +535,14 @@ namespace Source
                 switch (value.ValueKind)
                 {
                     case JsonValueKind.Number:
-                        list.Add(new RecipeMetadata { key = key, value = value.GetDouble() });
+                        list.Add(new RecipeMetadata { key = key, value = value.GetDouble().ToString(CultureInfo.InvariantCulture) });
                         break;
                     case JsonValueKind.True:
                     case JsonValueKind.False:
-                        list.Add(new RecipeMetadata { key = key, value = value.GetBoolean() ? 1 : 0 });
+                        list.Add(new RecipeMetadata { key = key, value = value.GetBoolean() ? "1" : "0" });
+                        break;
+                    case JsonValueKind.String:
+                        list.Add(new RecipeMetadata { key = key, value = value.GetString() ?? "" });
                         break;
                     default:
                         throw new InvalidDataException($"Recipe '{recipeId}' metadata key '{key}' has unsupported value kind {value.ValueKind}");
@@ -543,6 +576,17 @@ namespace Source
                 {
                     throw new InvalidDataException($"Item '{itemKey}' metadata key '{key}' has unsupported value kind {value.ValueKind}");
                 }
+            }
+        }
+
+        private static void ApplyHardcodedRecipeModifiers(Item item, string itemId)
+        {
+            if (!HardcodedRecipeModifiers.TryGetValue(itemId, out var modifiers))
+                return;
+            foreach (var modifier in modifiers)
+            {
+                if (!item.recipeModifiers.Contains(modifier))
+                    item.recipeModifiers.Add(modifier);
             }
         }
 
@@ -580,62 +624,7 @@ namespace Source
             }
         }
 
-        // Matches tooltip lines like "Allows to run up to 8 recipes in parallel."
-        // (after stripping Minecraft formatting codes). Captures the parallel count.
-        private static readonly Regex AbsoluteParallelsRegex = new(
-            @"Allows to run up to\s*([\d,]+)\s*recipes in parallel",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        // Absolute Parallel Mastery Hatches expose how many free parallels they grant
-        // only in the tooltip. Parse it into an `absoluteParallels` metadata. Regular
-        // Parallel Control Hatches share the "Allows to run up to N..." line, so only
-        // treat hatches whose tooltip also advertises the energy-free parallels.
-        private static void ApplyAbsoluteParallels(Item item, List<string> tooltipLines)
-        {
-            if (tooltipLines == null)
-                return;
-            var strippedLines = tooltipLines.Select(rawLine => Regex.Replace(rawLine, "\u00A7.", "")).ToList();
-            var isAbsolute = strippedLines.Any(line =>
-                line.IndexOf("Without extra energy consumption", StringComparison.OrdinalIgnoreCase) >= 0);
-            if (!isAbsolute)
-                return;
-            foreach (var line in strippedLines)
-            {
-                var match = AbsoluteParallelsRegex.Match(line);
-                if (!match.Success)
-                    continue;
-                var count = long.Parse(match.Groups[1].Value.Replace(",", ""), CultureInfo.InvariantCulture);
-                item.metadata.Add(new ItemMetadata { key = "absoluteParallels", value = count });
-                return;
-            }
-        }
-
-        // Parallel Control Hatches advertise their parallel limit only in the tooltip
-        // ("Allows to run up to N recipes in parallel"), sharing that line with the
-        // Absolute Parallel Mastery Hatch. The upstream `maxParallel` metadata is
-        // unreliable, so override it with the tooltip-derived value. Absolute hatches
-        // additionally advertise "Without extra energy consumption"; skip those here
-        // (they are handled by ApplyAbsoluteParallels).
-        private static void ApplyMaxParallels(Item item, List<string> tooltipLines)
-        {
-            if (tooltipLines == null)
-                return;
-            var strippedLines = tooltipLines.Select(rawLine => Regex.Replace(rawLine, "\u00A7.", "")).ToList();
-            var isAbsolute = strippedLines.Any(line =>
-                line.IndexOf("Without extra energy consumption", StringComparison.OrdinalIgnoreCase) >= 0);
-            if (isAbsolute)
-                return;
-            foreach (var line in strippedLines)
-            {
-                var match = AbsoluteParallelsRegex.Match(line);
-                if (!match.Success)
-                    continue;
-                var count = long.Parse(match.Groups[1].Value.Replace(",", ""), CultureInfo.InvariantCulture);
-                item.metadata.RemoveAll(m => m.key == "maxParallel");
-                item.metadata.Add(new ItemMetadata { key = "maxParallel", value = count });
-                return;
-            }
-        }
 
         #region Solar Power generators
 
@@ -644,14 +633,14 @@ namespace Source
         // heating modifier are fixed game constants (shown on each cell's tooltip). The "Solar
         // Power" recipe type is fully synthesized by the calculator, so they are listed here
         // rather than parsed. Each cell's VoltageOut tier is one step below its name tier.
-        private static readonly (string id, int voltageOut, double heatingModifier)[] SolarCells =
+        private static readonly (string id, int voltageOut, double heatingModifier, int durability)[] SolarCells =
         {
-            ("start_core:ev_solar_cell",  512,    1.00),
-            ("start_core:iv_solar_cell",  2048,   0.95),
-            ("start_core:luv_solar_cell", 8192,   0.90),
-            ("start_core:zpm_solar_cell", 32768,  0.85),
-            ("start_core:uv_solar_cell",  131072, 0.80),
-            ("start_core:uhv_solar_cell", 524288, 0.75),
+            ("start_core:ev_solar_cell",  512,    1.00, 2048),
+            ("start_core:iv_solar_cell",  2048,   0.95, 3072),
+            ("start_core:luv_solar_cell", 8192,   0.90, 4096),
+            ("start_core:zpm_solar_cell", 32768,  0.85, 6144),
+            ("start_core:uv_solar_cell",  131072, 0.80, 8192),
+            ("start_core:uhv_solar_cell", 524288, 0.75, 12288),
         };
 
         // The solar panel/array multiblocks that act as crafters for the Solar Power type.
@@ -664,7 +653,6 @@ namespace Source
             "start_core:uhv_solar_array",
         };
 
-        private const int SolarCellDurability = 1024;   // productive cycles before a cell breaks
         private const int SolarCycleTicks = 120;        // ticks per productive cycle (6 seconds)
 
         // Records how many solar cells a solar panel/array structure contains, read from its
@@ -702,7 +690,7 @@ namespace Source
                 name = "Solar Power",
                 category = "start_core",
                 itemInputs = new RecipeDimensions(1, 1),
-                itemOutputs = new RecipeDimensions(0, 0),
+                itemOutputs = new RecipeDimensions(1, 1),
                 fluidInputs = new RecipeDimensions(0, 0),
                 fluidOutputs = new RecipeDimensions(0, 0),
                 shapeless = false,
@@ -724,11 +712,13 @@ namespace Source
 
             recipeTypes.Add(type);
 
-            foreach (var (cellId, voltageOut, heatingModifier) in SolarCells)
+            foreach (var (cellId, voltageOut, heatingModifier, durability) in SolarCells)
             {
                 if (!items.TryGetValue(cellId, out var cell))
                     continue;
+                var brokenCell = EnsureBrokenSolarCell(cellId, items);
                 cell.touched = true;
+                brokenCell.touched = true;
                 recipes.Add(new Recipe
                 {
                     id = "r:startcalc:solar_power/" + InternalName(cellId),
@@ -739,15 +729,18 @@ namespace Source
                     },
                     oreDictInputs = Array.Empty<RecipeInput<OreDict>>(),
                     fluidInputs = Array.Empty<RecipeInput<Fluid>>(),
-                    itemOutputs = Array.Empty<RecipeProduct<Item>>(),
+                    itemOutputs = new[]
+                    {
+                        new RecipeProduct<Item> { goods = brokenCell, amount = 1, slot = 0, probability = Prob(null), tierChanceBoost = 0 },
+                    },
                     fluidOutputs = Array.Empty<RecipeProduct<Fluid>>(),
                     gtInfo = new GtRecipeInfo
                     {
                         voltage = -voltageOut,
-                        durationTicks = SolarCellDurability * SolarCycleTicks,
+                        durationTicks = durability * SolarCycleTicks,
                         amperage = 1,
                         voltageTier = VoltageTiers.GetVoltageTierFromRaw(voltageOut),
-                        metadata = new[] { new RecipeMetadata { key = "solar_heating_modifier", value = heatingModifier } },
+                        metadata = new[] { new RecipeMetadata { key = "solar_heating_modifier", value = heatingModifier.ToString(CultureInfo.InvariantCulture) } },
                     },
                 });
             }
@@ -756,6 +749,70 @@ namespace Source
         #endregion
 
         #region Hardcoded recipe transforms
+
+        private static List<RecipeJson> TransformSolarPanelReplacement(RecipeJson rj, Dictionary<string, Item> items)
+        {
+            var cellId = (rj.itemInputs ?? Empty).Values
+                .Select(stack => stack.key)
+                .FirstOrDefault(IsSolarCell);
+            if (cellId == null)
+                return new List<RecipeJson> { rj };
+
+            var brokenCell = EnsureBrokenSolarCell(cellId, items);
+            foreach (var output in (rj.itemOutputs ?? Empty).Values)
+            {
+                if (output.key == cellId || output.key.StartsWith(cellId + "#"))
+                    output.key = ItemKey(brokenCell);
+            }
+            return new List<RecipeJson> { rj };
+        }
+
+        private static List<RecipeJson> TransformCanner(RecipeJson rj, Dictionary<string, Item> items)
+        {
+            if (rj.id == null || !rj.id.StartsWith("start:canner/") || !rj.id.EndsWith("_solar_cell_repair"))
+                return new List<RecipeJson> { rj };
+
+            foreach (var input in (rj.itemInputs ?? Empty).Values)
+            {
+                if (IsSolarCell(input.key))
+                    input.key = ItemKey(EnsureBrokenSolarCell(input.key, items));
+            }
+            return new List<RecipeJson> { rj };
+        }
+
+        private static bool IsSolarCell(string itemId)
+            => itemId != null && SolarCells.Any(cell => cell.id == itemId);
+
+        private static string ItemKey(Item item)
+            => item.mod + ":" + item.internalName;
+
+        private static Item EnsureBrokenSolarCell(string cellId, Dictionary<string, Item> items)
+        {
+            var brokenId = cellId + "_broken";
+            if (items.TryGetValue(brokenId, out var existing))
+                return existing;
+            if (!items.TryGetValue(cellId, out var intact))
+                throw new InvalidDataException($"Cannot synthesize broken solar cell for missing item '{cellId}'");
+            var exportedBroken = items
+                .Where(entry => entry.Key.StartsWith(cellId + "#"))
+                .Select(entry => entry.Value)
+                .FirstOrDefault() ?? intact;
+
+            var broken = new Item
+            {
+                name = "Broken " + Regex.Replace(intact.name, "\u00A7.", ""),
+                mod = intact.mod,
+                internalName = intact.internalName + "_broken",
+                tooltip = "",
+                nbt = null,
+                stackSize = intact.stackSize,
+                damage = intact.damage,
+                numericId = intact.numericId,
+                imagePath = exportedBroken.imagePath,
+            };
+            items[brokenId] = broken;
+            return broken;
+        }
 
         // gtceu:bacterial_hydrocarbon_harvester:
         //  - strip nbt from item inputs (synthesizing a clean item when no nbt-less base exists),
@@ -841,6 +898,8 @@ namespace Source
             mod = source.mod,
             internalName = source.internalName,
             tooltip = source.tooltip,
+            modifierSections = new List<TooltipModifierSection>(source.modifierSections),
+            pages = source.pages.Select(page => new List<string>(page)).ToList(),
             nbt = null,
             stackSize = source.stackSize,
             damage = source.damage,
@@ -916,7 +975,7 @@ namespace Source
                 return null;
             var clone = new Dictionary<string, StackJson>(source.Count);
             foreach (var (k, v) in source)
-                clone[k] = new StackJson { key = v.key, count = v.count, amount = v.amount, probability = v.probability };
+                clone[k] = new StackJson { key = v.key, count = v.count, amount = v.amount, probability = v.probability, tierChanceBoost = v.tierChanceBoost };
             return clone;
         }
 
@@ -945,6 +1004,34 @@ namespace Source
 
         private static string JoinTooltip(List<string> lines)
             => lines == null || lines.Count == 0 ? "" : string.Join("\n", lines) + "\n";
+
+        private static TooltipJson ExtractTooltip(JsonElement tooltip)
+        {
+            if (tooltip.ValueKind != JsonValueKind.Object)
+                return null;
+            var result = JsonSerializer.Deserialize<TooltipJson>(tooltip.GetRawText(), StrictOptions);
+            if (result?.defaultLines?.Count > 0)
+                result.defaultLines.RemoveAt(0);
+            result.defaultLines = FilterTooltipLines(result?.defaultLines);
+            return result;
+        }
+
+        private static List<string> FilterTooltipLines(List<string> lines)
+            => lines?.Where(line =>
+            {
+                var plainText = Regex.Replace(line, "§.", "").Trim();
+                return !plainText.Equals("Hold [W] to Ponder", StringComparison.OrdinalIgnoreCase) &&
+                    !plainText.Equals("Added by Star Technology", StringComparison.OrdinalIgnoreCase) &&
+                    !Regex.IsMatch(plainText, "^-+$");
+            }).ToList() ?? new();
+
+        private static List<TooltipModifierSection> ConvertModifierSections(List<TooltipModifierSectionJson> sections)
+            => sections?.Select(section => new TooltipModifierSection
+            {
+                id = section.id,
+                name = section.name,
+                description = section.description ?? new(),
+            }).ToList() ?? new();
 
         private static Dictionary<string, T> ReadObject<T>(string path)
             => JsonSerializer.Deserialize<Dictionary<string, T>>(File.ReadAllText(path), StrictOptions);

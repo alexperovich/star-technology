@@ -88,6 +88,9 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
     let gtRecipe = recipe.gtRecipe;
     let machineInfo = null;
     if (gtRecipe && gtRecipe.durationTicks > 0) {
+        const recipeTypeUsesEnergy = recipe.recipeType.usesEnergy;
+        if (!recipeTypeUsesEnergy)
+            recipeModel.voltageTier = gtRecipe.voltageTier;
         let crafter = recipeModel.crafter ? Repository.current.GetById<Item>(recipeModel.crafter) : null;
         if (crafter != null && !recipe.recipeType.multiblocks.includes(crafter))
             crafter = null;
@@ -128,7 +131,18 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         machineInfo = crafter ? BuildMachineFromCrafter(crafter, recipe.recipeType) : GetSingleBlockMachine(recipe.recipeType);
         recipeModel.multiblockCrafter = crafter;
         recipeModel.machineInfo = machineInfo;
-        if (machineInfo.fixedVoltageTier) {
+        if (isSingleblock) {
+            const availableTiers = recipe.recipeType.singleblocks
+                .map((item, index) => item ? index : -1)
+                .filter(index => index >= gtRecipe.voltageTier);
+            if (availableTiers.length > 0 && !availableTiers.includes(recipeModel.voltageTier)) {
+                const lowerTiers = availableTiers.filter(index => index <= recipeModel.voltageTier);
+                recipeModel.voltageTier = lowerTiers.length > 0
+                    ? lowerTiers[lowerTiers.length - 1]
+                    : availableTiers[0];
+            }
+        }
+        if (machineInfo.fixedVoltageTier !== undefined) {
             recipeModel.voltageTier = GetParameter(machineInfo.fixedVoltageTier, recipeModel)!;
         }
         recipeModel.ValidateChoices(machineInfo, recipeModel, solvingPage?.settings?.defaultChoices);
@@ -138,7 +152,15 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         let energyModifier = GetParameter(machineInfo.power, recipeModel);
         let maxParallels = machineInfo.ignoreParallelLimit ? machineParallels : Math.max(1, Math.floor(actualVoltage / (gtRecipe.voltage * energyModifier * amperage)));
         let parallels = Math.min(maxParallels, machineParallels);
-        let tierDifference = Math.max(0, recipeModel.voltageTier - gtRecipe.voltageTier);
+        let overclockBaseTier = gtRecipe.voltageTier;
+        if (machineInfo.overclockBaseVoltage !== undefined) {
+            const overclockBaseVoltage = GetParameter(machineInfo.overclockBaseVoltage, recipeModel);
+            const matchingTier = voltageTier.findIndex(tier => overclockBaseVoltage <= tier.voltage);
+            overclockBaseTier = matchingTier >= 0 ? matchingTier : voltageTier.length - 1;
+        }
+        let tierDifference = recipeTypeUsesEnergy
+            ? Math.max(0, recipeModel.voltageTier - overclockBaseTier)
+            : 0;
         const overclocker = GetParameter(machineInfo.overclocker, recipeModel);
         let speedModifier = GetParameter(machineInfo.speed, recipeModel);
         //console.log({machineParallels, maxParallels, parallels, overclockTiers, overclockSpeed, overclockPower, energyModifier, speedModifier});
@@ -150,6 +172,9 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         const durationModifiers = machineInfo.durationModifiers;
         const applyDurationModifiers = (durationTicks:number) => {
             if (durationModifiers) {
+                // Each in-game modifier creates a recipe with an integer duration.
+                // Overclocking runs before these machine duration modifiers.
+                durationTicks = Math.floor(durationTicks);
                 for (const durationModifier of durationModifiers)
                     durationTicks = Math.floor(durationTicks * GetParameter(durationModifier, recipeModel));
             }
@@ -162,6 +187,8 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         let overclockResult = overclocker.calculate(recipeModel, overclockTiers);
         let estimatedDurationTicks = estimateDurationTicks(overclockResult.overclockSpeed);
         let subtickOverclocks = 0;
+        let subtickParallelFactor = 1;
+        let effectiveOverclockSpeed = overclockResult.overclockSpeed;
         while (overclockTiers < tierDifference) {
             const candidateTiers = overclockTiers + 1;
             const candidate = overclocker.calculate(recipeModel, candidateTiers);
@@ -174,28 +201,32 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
                 if (!machineInfo.subtick)
                     break;
                 ++subtickOverclocks;
+                subtickParallelFactor *= candidate.overclockSpeed / overclockResult.overclockSpeed;
+            } else {
+                effectiveOverclockSpeed = candidate.overclockSpeed;
+                estimatedDurationTicks = candidateDurationTicks;
             }
             overclockTiers = candidateTiers;
             overclockResult = candidate;
-            estimatedDurationTicks = Math.max(1, candidateDurationTicks);
         }
         estimatedDurationTicks = Math.max(1, estimatedDurationTicks);
-        if (machineInfo.durationModifiers && !(machineInfo.subtick && subtickOverclocks > 0)) {
-            speedModifier = durationTicksForRounding / estimatedDurationTicks / overclockResult.overclockSpeed;
+        if (machineInfo.durationModifiers) {
+            speedModifier = durationTicksForRounding / estimatedDurationTicks / effectiveOverclockSpeed;
         }
         let speedCorrectionFactor = 1.0;
-        if (!machineInfo.subtick && estimatedDurationTicks > 1) {
+        if (estimatedDurationTicks > 1) {
             const roundedEstimatedDurationTicks = Math.floor(estimatedDurationTicks);
             speedCorrectionFactor = estimatedDurationTicks / roundedEstimatedDurationTicks;
         }
 
-        const subtickParallelFactor = Math.pow(2, subtickOverclocks);
-        const effectiveOverclockSpeed = subtickOverclocks > 0
-            ? durationTicksForRounding / speedModifier
-            : overclockResult.overclockSpeed;
         recipeModel.overclockFactor = effectiveOverclockSpeed * speedModifier * speedCorrectionFactor * parallels * subtickParallelFactor;
         recipeModel.powerFactor = amperage * overclockResult.overclockPower * energyModifier / speedModifier / speedCorrectionFactor;
         recipeModel.parallels = parallels * subtickParallelFactor;
+        if (machineInfo.truncateFinalEuPerTick) {
+            const euPerTick = Math.abs(gtRecipe.voltage) * recipeModel.overclockFactor * recipeModel.powerFactor;
+            const tolerance = Math.abs(euPerTick) * Number.EPSILON * 4;
+            recipeModel.powerFactor *= Math.floor(euPerTick + tolerance) / euPerTick;
+        }
         recipeModel.overclockTiers = overclockTiers;
         recipeModel.overclockName = overclockResult.overclockName;
 

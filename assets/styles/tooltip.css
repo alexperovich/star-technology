@@ -51,6 +51,48 @@
     white-space: pre-line;
 }
 
+.tooltip-separator {
+    white-space: nowrap;
+}
+
+.tooltip-line {
+    min-height: 1em;
+    white-space: pre-wrap;
+}
+
+.tooltip-modifier-description {
+    padding-left: 2ch;
+}
+
+.tooltip-arrow {
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-style: solid;
+}
+
+.tooltip-arrow-up {
+    border-width: 0 5px 7px;
+    border-color: transparent transparent currentColor;
+}
+
+.tooltip-arrow-down {
+    border-width: 7px 5px 0;
+    border-color: currentColor transparent transparent;
+}
+
+.tooltip-arrow-left {
+    border-width: 5px 7px 5px 0;
+    border-color: transparent currentColor transparent transparent;
+    margin-right: 4px;
+}
+
+.tooltip-arrow-right {
+    border-width: 5px 0 5px 7px;
+    border-color: transparent transparent transparent currentColor;
+    margin-left: 4px;
+}
+
 #tooltip-action
 {
     color: #cecf76;

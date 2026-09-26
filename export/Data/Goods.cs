@@ -37,6 +37,16 @@ namespace Source.Data
         [NonSerialized] public string imagePath;
         public int[] production = Array.Empty<int>();
         public int[] consumption = Array.Empty<int>();
+        public List<TooltipModifierSection> modifierSections = new();
+        public List<List<string>> pages = new();
+    }
+
+    [Serializable]
+    public class TooltipModifierSection
+    {
+        public string id;
+        public string name;
+        public List<string> description = new();
     }
 
     [Serializable]

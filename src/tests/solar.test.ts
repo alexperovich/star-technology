@@ -9,19 +9,19 @@ import { setupRepository } from './setup';
 // sun but must idle to stay heat-neutral, so the sustained output is scaled by
 // the duty cycle s = 1 / (1 + heatBuildup * hm / 0.1).
 const CELLS = [
-    { id: 'r:startcalc:solar_power/ev_solar_cell',  goods: 'i:start_core:ev_solar_cell:0',  voltageOut: 512,    hm: 1.00, tier: 2 },
-    { id: 'r:startcalc:solar_power/iv_solar_cell',  goods: 'i:start_core:iv_solar_cell:0',  voltageOut: 2048,   hm: 0.95, tier: 3 },
-    { id: 'r:startcalc:solar_power/luv_solar_cell', goods: 'i:start_core:luv_solar_cell:0', voltageOut: 8192,   hm: 0.90, tier: 4 },
-    { id: 'r:startcalc:solar_power/zpm_solar_cell', goods: 'i:start_core:zpm_solar_cell:0', voltageOut: 32768,  hm: 0.85, tier: 5 },
-    { id: 'r:startcalc:solar_power/uv_solar_cell',  goods: 'i:start_core:uv_solar_cell:0',  voltageOut: 131072, hm: 0.80, tier: 6 },
-    { id: 'r:startcalc:solar_power/uhv_solar_cell', goods: 'i:start_core:uhv_solar_cell:0', voltageOut: 524288, hm: 0.75, tier: 7 },
+    { id: 'r:startcalc:solar_power/ev_solar_cell',  goods: 'i:start_core:ev_solar_cell:0',  broken: 'i:start_core:ev_solar_cell_broken:0',  brokenName: 'Broken EV Solar Cell',  voltageOut: 512,    hm: 1.00, durability: 2048,  tier: 2 },
+    { id: 'r:startcalc:solar_power/iv_solar_cell',  goods: 'i:start_core:iv_solar_cell:0',  broken: 'i:start_core:iv_solar_cell_broken:0',  brokenName: 'Broken IV Solar Cell',  voltageOut: 2048,   hm: 0.95, durability: 3072,  tier: 3 },
+    { id: 'r:startcalc:solar_power/luv_solar_cell', goods: 'i:start_core:luv_solar_cell:0', broken: 'i:start_core:luv_solar_cell_broken:0', brokenName: 'Broken LuV Solar Cell', voltageOut: 8192,   hm: 0.90, durability: 4096,  tier: 4 },
+    { id: 'r:startcalc:solar_power/zpm_solar_cell', goods: 'i:start_core:zpm_solar_cell:0', broken: 'i:start_core:zpm_solar_cell_broken:0', brokenName: 'Broken ZPM Solar Cell', voltageOut: 32768,  hm: 0.85, durability: 6144,  tier: 5 },
+    { id: 'r:startcalc:solar_power/uv_solar_cell',  goods: 'i:start_core:uv_solar_cell:0',  broken: 'i:start_core:uv_solar_cell_broken:0',  brokenName: 'Broken UV Solar Cell',  voltageOut: 131072, hm: 0.80, durability: 8192,  tier: 6 },
+    { id: 'r:startcalc:solar_power/uhv_solar_cell', goods: 'i:start_core:uhv_solar_cell:0', broken: 'i:start_core:uhv_solar_cell_broken:0', brokenName: 'Broken UHV Solar Cell', voltageOut: 524288, hm: 0.75, durability: 12288, tier: 7 },
 ];
 
 const CRAFTERS = [
     { id: 'i:start_core:ev_solar_panel:0',  cells: 9,   voltMult: 1.0,  isArray: false },
     { id: 'i:start_core:iv_solar_panel:0',  cells: 15,  voltMult: 1.05, isArray: false },
     { id: 'i:start_core:luv_solar_panel:0', cells: 21,  voltMult: 1.1,  isArray: false },
-    { id: 'i:start_core:uv_solar_array:0',  cells: 64,  voltMult: 1.2,  voltMultCooled: 1.328, isArray: true },
+    { id: 'i:start_core:uv_solar_array:0',  cells: 64,  voltMult: 1.2,  voltMultCooled: 1.325, isArray: true },
     { id: 'i:start_core:uhv_solar_array:0', cells: 188, voltMult: 1.25, voltMultCooled: 1.45,  isArray: true },
 ];
 
@@ -68,12 +68,34 @@ describe('Solar Power', () => {
             // Negative voltage marks the recipe as an energy producer.
             expect(recipe!.gtRecipe.voltage).toBe(-cell.voltageOut);
             expect(recipe!.gtRecipe.voltageTier).toBe(cell.tier);
-            expect(recipe!.gtRecipe.durationTicks).toBe(1024 * 120);
+            expect(recipe!.gtRecipe.durationTicks).toBe(cell.durability * 120);
             expect(recipe!.gtRecipe.MetadataByKey('solar_heating_modifier', -1)).toBeCloseTo(cell.hm, 5);
-            // Exactly one input: the solar cell.
             const inputs = recipe!.items.filter((s) => s.type === RecipeIoType.ItemInput);
+            const outputs = recipe!.items.filter((s) => s.type === RecipeIoType.ItemOutput);
             expect(inputs.length).toBe(1);
             expect(inputs[0].goods.id).toBe(cell.goods);
+            expect(outputs.length).toBe(1);
+            expect(outputs[0].goods.id).toBe(cell.broken);
+            const broken = Repository.current.GetById<Item>(cell.broken);
+            expect(broken!.name).toBe(cell.brokenName);
+            expect(broken!.nbt).toBeNull();
+            expect(broken!.tooltip).toBeNull();
+        }
+    });
+
+    it('uses synthesized broken cells in replacement and canner repair recipes', () => {
+        for (const cell of CELLS) {
+            const tier = cell.goods.split(':')[2].split('_')[0];
+            const replacement = Repository.current.GetById<Recipe>(
+                `r:gtceu:/solar_panel_replacement/block.start_core.${tier}_solar_cell`,
+            );
+            const repair = Repository.current.GetById<Recipe>(`r:start:canner/${tier}_solar_cell_repair`);
+
+            expect(replacement).toBeTruthy();
+            expect(replacement!.items.find((s) => s.type === RecipeIoType.ItemOutput)!.goods.id).toBe(cell.broken);
+            expect(repair).toBeTruthy();
+            expect(repair!.items.find((s) => s.type === RecipeIoType.ItemInput)!.goods.id).toBe(cell.broken);
+            expect(repair!.items.filter((s) => s.type === RecipeIoType.ItemOutput).map((s) => s.goods.id)).toContain(cell.goods);
         }
     });
 
@@ -137,8 +159,7 @@ describe('Solar Power', () => {
         const array = CRAFTERS.find((c) => c.isArray)!;
         const off = solveSolar(EV.id, array.id, { solarCooling: 0 });
         const euPerCell = (m: RecipeModel) => Math.abs(totalEnergy(m)) / m.flow.input[EV.goods];
-        // productiveTicks = durability * cycleTicks = 1024 * 120; per minute = /1200.
-        const expectedPerCell = EV.voltageOut * array.voltMult * (1024 * 120 / 1200);
+        const expectedPerCell = EV.voltageOut * array.voltMult * (EV.durability * 120 / 1200);
         expect(euPerCell(off)).toBeCloseTo(expectedPerCell, 2);
     });
 });

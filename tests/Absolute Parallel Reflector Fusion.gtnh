@@ -1,0 +1,27 @@
+{
+  "name": "Absolute Parallel Reflector Fusion",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:start:reflector_fusion_reactor/magmatic_plasma_from_infernal_concentrate_and_iron_plasma",
+        "voltageTier": 8,
+        "fixedCrafterCount": 1,
+        "crafter": "i:start_core:uhv_fusion_reactor:0",
+        "choices": {
+          "reflector": 6,
+          "absoluteParallels": 2
+        }
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

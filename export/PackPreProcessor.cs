@@ -1,5 +1,4 @@
-﻿using System.Text;
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using export;
 using Source.Data;
 
@@ -7,6 +6,12 @@ namespace Source
 {
     public static class PackPreProcessor
     {
+        private static readonly HashSet<string> TierlessSingleblocks = new()
+        {
+            "gtceu:advanced_composter",
+            "gtceu:casket",
+        };
+
         public static void PreProcessPack(Repository repository)
         {
             Console.WriteLine("Adding fluid tooltips...");
@@ -30,7 +35,11 @@ namespace Source
             foreach (var item in repository.items)
             {
                 if (item.container != null && item.container.empty.name == "Empty Cell" && !string.IsNullOrEmpty(item.tooltip))
+                {
                     item.container.fluid.tooltip = item.tooltip;
+                    item.container.fluid.modifierSections = item.modifierSections;
+                    item.container.fluid.pages = item.pages;
+                }
             }
         }
 
@@ -49,7 +58,9 @@ namespace Source
         private static bool GetSingleBlockVoltageTier(Item item, out int tier)
         {
             tier = 0;
-            if (!item.tooltip.Contains("Voltage IN"))
+            if (TierlessSingleblocks.Contains($"{item.mod}:{item.internalName}"))
+                return true;
+            if (!item.tooltip.Contains("Voltage IN") && !item.tooltip.Contains("Voltage OUT"))
                 return false;
             
             var cleanedTooltip = Regex.Replace(item.tooltip, "§.", "");
@@ -101,26 +112,8 @@ namespace Source
 
         private static void ProcessToolTips<T>(List<T> goods) where T:Goods
         {
-            var builder = new StringBuilder();
             foreach (var item in goods)
-            {
                 item.tooltip ??= "";
-                var parts = item.tooltip.Split('\n');
-                builder.Clear();
-                for (var i = 1; i < parts.Length-1; i++)
-                {
-                    var part = parts[i];
-                    if ((part.Contains("press", StringComparison.OrdinalIgnoreCase) || part.Contains("hold", StringComparison.OrdinalIgnoreCase)) &&
-                        (part.Contains("ctrl", StringComparison.OrdinalIgnoreCase) || part.Contains("shift", StringComparison.OrdinalIgnoreCase) || part.Contains("control", StringComparison.OrdinalIgnoreCase)))
-                        continue;
-                    if (i == 1 && part == "")
-                        continue;
-
-                    builder.Append(part).Append('\n');
-                }
-
-                item.tooltip = builder.ToString();
-            }
         }
 
         private static void AddToArrayBuffer(ref int[] arr, int id)

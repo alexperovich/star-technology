@@ -1,5 +1,6 @@
 import { Repository, Item, Fluid, Recipe, OreDict } from '../repository';
 import { setupRepository } from './setup';
+import { AbsoluteParallelHatchTiers, ParallelHatchTiers } from '../utils';
 
 describe('Repository', () => {
     beforeAll(async () => {
@@ -20,5 +21,10 @@ describe('Repository', () => {
         const fluid = Repository.current.GetById<Fluid>('f:gtceu:steam');
         expect(fluid).toBeDefined();
         expect(fluid?.name).toBe('Steam');
+    });
+
+    it('keeps absolute parallel hatches out of the normal parallel hatch list', () => {
+        expect(ParallelHatchTiers.some((tier) => tier.name.includes('Absolute'))).toBe(false);
+        expect(AbsoluteParallelHatchTiers.some((tier) => tier.name === 'Epic' && tier.parallels === 4)).toBe(true);
     });
 }); 

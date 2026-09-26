@@ -1,4 +1,5 @@
 ﻿using Source.Data;
+using System.Text.RegularExpressions;
 
 namespace export;
 
@@ -20,9 +21,9 @@ public static class RecipeConflictsCalculator
                 var circuit = 0;
                 foreach (var input in recipe.itemInputs)
                 {
-                    if (input.amount == 0 && input.goods.unlocalizedName == "gt.integrated_circuit")
+                    if ((input.amount == 0 || input.probability == 0) && IsProgrammedCircuit(input.goods))
                     {
-                        circuit = input.goods.damage;
+                        circuit = GetProgrammedCircuitConfiguration(input.goods);
                         break;
                     }
                 }
@@ -40,5 +41,25 @@ public static class RecipeConflictsCalculator
                 }
             }
         }
+    }
+
+    private static bool IsProgrammedCircuit(Item item)
+        => item.mod == "gtceu" && item.internalName == "programmed_circuit";
+
+    private static int GetProgrammedCircuitConfiguration(Item item)
+    {
+        if (!string.IsNullOrEmpty(item.nbt))
+        {
+            var nbtMatch = Regex.Match(item.nbt, @"configuration:(\d+)");
+            if (nbtMatch.Success)
+                return int.Parse(nbtMatch.Groups[1].Value);
+        }
+        if (!string.IsNullOrEmpty(item.tooltip))
+        {
+            var tooltipMatch = Regex.Match(item.tooltip, @"Configuration:\s*(\d+)");
+            if (tooltipMatch.Success)
+                return int.Parse(tooltipMatch.Groups[1].Value);
+        }
+        return item.damage;
     }
 }

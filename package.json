@@ -10,7 +10,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:snapshot": "jest --updateSnapshot",
-    "pretest": "tsc"
+    "pretest": "tsc",
+    "process-data": "dotnet run --project export/export.csproj -- export-data --output data"
   },
   "keywords": [
     "gregtech",

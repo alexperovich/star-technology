@@ -1,0 +1,27 @@
+{
+  "name": "Bulking",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:start:bulk_ore_processing_array/tin",
+        "voltageTier": 7,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:bulk_ore_processing_array:0",
+        "choices": {
+          "parallels": 0,
+          "bulking": 0
+        }
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}

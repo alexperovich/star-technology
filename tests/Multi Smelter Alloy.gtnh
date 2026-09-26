@@ -1,0 +1,26 @@
+{
+  "name": "Multi Smelter Alloy",
+  "products": [],
+  "rootGroup": {
+    "type": "recipe_group",
+    "links": {},
+    "elements": [
+      {
+        "type": "recipe",
+        "recipeId": "r:gtceu:alloy_smelter/copper_dust_and_tin_dust_into_bronze",
+        "voltageTier": 7,
+        "fixedCrafterCount": 1,
+        "crafter": "i:gtceu:multi_smelter:0",
+        "choices": {
+          "coilTier": 10
+        }
+      }
+    ],
+    "collapsed": false,
+    "name": "Group"
+  },
+  "settings": {
+    "minVoltage": 0,
+    "timeUnit": "sec"
+  }
+}
