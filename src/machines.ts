@@ -115,6 +115,7 @@ export type Machine = {
     speed: MachineCoefficient<number>;
     durationModifiers?: MachineCoefficient<number>[];
     power: MachineCoefficient<number>;
+    parallelLimitPower?: MachineCoefficient<number>;
     parallels: MachineCoefficient<number>;
     recipe?: (recipe:RecipeModel, choices:{[key:string]:number}, items:RecipeInOut[]) => RecipeInOut[];
     info?: MachineCoefficient<string>;
@@ -421,6 +422,7 @@ type MachineBuilder = {
     fixedVoltageTier?: MachineCoefficient<number>;
     overclockBaseVoltage?: MachineCoefficient<number>;
     infos: string[];
+    parallelLimitPowerFactors?: MachineCoefficient<number>[];
 };
 
 type ModifierImpl = (builder:MachineBuilder, crafter:Item) => void;
@@ -537,6 +539,7 @@ const modifierRegistry: {[id:string]: ModifierImpl} = {
         builder.overclocker = StandardOverclocker.onlyNormal();
         addCoilChoice(builder);
         builder.durationModifiers.push((_recipe, choices) => 1 / (0.75 + choices.coilTier * 0.25));
+        builder.parallelLimitPowerFactors = [...builder.powerFactors];
         builder.powerFactors.push((_recipe, choices) => 1 - choices.coilTier * 0.05);
     },
     "multi_smellter_parallel": builder => {
@@ -676,6 +679,8 @@ function ComposeMachineFromModifiers(crafter:Item, _recipeType:RecipeType):Machi
         power: multiplyFactors(builder.powerFactors),
         parallels: multiplyFactors(builder.parallelFactors),
     };
+    if (builder.parallelLimitPowerFactors)
+        machine.parallelLimitPower = multiplyFactors(builder.parallelLimitPowerFactors);
     if (builder.durationModifiers.length > 0)
         machine.durationModifiers = builder.durationModifiers;
     if (builder.subtick)

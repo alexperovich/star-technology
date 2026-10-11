@@ -150,7 +150,10 @@ function PreProcessRecipe(recipeModel:RecipeModel, model:Model, collection:LinkC
         let actualVoltage = voltageTier[recipeModel.voltageTier].voltage;
         let machineParallels = Math.max(1, GetParameter(machineInfo.parallels, recipeModel));
         let energyModifier = GetParameter(machineInfo.power, recipeModel);
-        let maxParallels = machineInfo.ignoreParallelLimit ? machineParallels : Math.max(1, Math.floor(actualVoltage / (gtRecipe.voltage * energyModifier * amperage)));
+        const parallelEnergyModifier = machineInfo.parallelLimitPower === undefined
+            ? energyModifier
+            : GetParameter(machineInfo.parallelLimitPower, recipeModel);
+        let maxParallels = machineInfo.ignoreParallelLimit ? machineParallels : Math.max(1, Math.floor(actualVoltage / (gtRecipe.voltage * parallelEnergyModifier * amperage)));
         let parallels = Math.min(maxParallels, machineParallels);
         let overclockBaseTier = gtRecipe.voltageTier;
         if (machineInfo.overclockBaseVoltage !== undefined) {
